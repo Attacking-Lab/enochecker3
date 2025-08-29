@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
     branches:
       - main
@@ -20,7 +21,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - uses: attacking-lab/actions/.github/actions/github-credentials-store
+    - uses: attacking-lab/actions/.github/actions/github-credentials-store@main
       with:
         password: ${{ secrets.CI_PAT }}
 
