@@ -1,49 +1,23 @@
-import re
-from enum import Enum
+__all__ = [
+    "CheckerMethod",
+    "CheckerTaskMessage",
+    "CheckerInfoMessage",
+    "CheckerResultMessage",
+    "CheckerTaskResult",
+    "EnoLogMessage",
+]
+
 from typing import ClassVar, Optional
 
-from pydantic import AliasGenerator
-from pydantic import BaseModel as PydanticBaseModel
-from pydantic import ConfigDict
-from pydantic.alias_generators import to_camel
-
-SNAKE_CASE_PATTERN = re.compile("(_[a-z])")
-
-
-def _to_camel_case(x: str) -> str:
-    return SNAKE_CASE_PATTERN.sub(lambda y: y.group(1)[1].upper(), x)
-
-
-class BaseModel(PydanticBaseModel):
-    model_config = ConfigDict(
-        use_enum_values=True,
-        alias_generator=AliasGenerator(alias=to_camel),
-        populate_by_name=True,
-    )
-
-
-class CheckerTaskResult(str, Enum):
-    value: str
-    OK = "OK"
-    MUMBLE = "MUMBLE"
-    OFFLINE = "OFFLINE"
-    INTERNAL_ERROR = "INTERNAL_ERROR"
-
-    def __str__(self) -> str:
-        return self.value
-
-
-class CheckerMethod(str, Enum):
-    value: str
-    PUTFLAG = "putflag"
-    GETFLAG = "getflag"
-    PUTNOISE = "putnoise"
-    GETNOISE = "getnoise"
-    HAVOC = "havoc"
-    EXPLOIT = "exploit"
-
-    def __str__(self) -> str:
-        return self.value
+from enochecker_core import (
+    BaseModel,
+    CheckerMethod,
+    CheckerTaskResult,
+    CheckerTaskMessage,
+    CheckerInfoMessage,
+    CheckerResultMessage,
+    EnoLogMessage,
+)
 
 
 class BaseCheckerTaskMessage(BaseModel):
@@ -100,39 +74,6 @@ class ExploitCheckerTaskMessage(BaseCheckerTaskMessage):
     method = CheckerMethod.EXPLOIT
 
 
-class CheckerInfoMessage(BaseModel):
-    service_name: str
-    flag_variants: int
-    noise_variants: int
-    havoc_variants: int
-    exploit_variants: int
-
-
-class CheckerResultMessage(BaseModel):
-    result: CheckerTaskResult
-    message: Optional[str] = None
-    attack_info: Optional[str] = None
-    flag: Optional[str] = None
-
-
-class CheckerTaskMessage(BaseModel):
-    task_id: int
-    method: CheckerMethod
-    address: str
-    team_id: int
-    team_name: str
-    current_round_id: int
-    related_round_id: int
-    flag: Optional[str]
-    variant_id: int
-    timeout: int
-    round_length: int
-    task_chain_id: str
-    flag_regex: Optional[str] = None
-    flag_hash: Optional[str] = None
-    attack_info: Optional[str] = None
-
-
 class BaseException(Exception):
     def __init__(self, message: Optional[str], log_message: Optional[str] = None):
         self.message: Optional[str] = message
@@ -156,27 +97,3 @@ class InternalErrorException(BaseException):
     ):
         super().__init__(message, log_message)
         self.inner: Optional[Exception] = inner
-
-
-class EnoLogMessage(BaseModel):
-    tool: str
-    type: str
-    severity: str
-    severity_level: int
-    timestamp: str
-    message: str
-    module: Optional[str]
-    function: Optional[str]
-    service_name: Optional[str]
-    task_id: Optional[int]
-    method: Optional[str]
-    team_id: Optional[int]
-    team_name: Optional[str]
-    current_round_id: Optional[int]
-    related_round_id: Optional[int]
-    flag: Optional[str]
-    variant_id: Optional[int]
-    task_chain_id: Optional[str]
-    flag_regex: Optional[str]
-    flag_hash: Optional[str]
-    attack_info: Optional[str]

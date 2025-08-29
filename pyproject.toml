@@ -17,6 +17,11 @@ dependencies = [
 ]
 
 [dependency-groups]
+dev = [
+]
+prod = [
+    "enochecker-core",
+]
 format = [
     "ruff>=0.12.10",
 ]
@@ -32,6 +37,11 @@ typing = [
     "mypy>=1.17.1",
 ]
 
+[project.optional-dependencies]
+dev = [
+	"enochecker-core"
+]
+
 [tool.ruff.lint]
 ignore = ["E731", "E722"]
 
@@ -40,8 +50,8 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["enochecker3"]
+where = ["src"]
+include = ["*"]
 exclude = []
 
 [tool.pytest.ini_options]
@@ -49,4 +59,19 @@ minversion = "6.0"
 addopts = "-s -rP"
 testpaths = [
     "tests"
+]
+
+[tool.uv.sources]
+enochecker-core = [
+	{ git = "https://github.com/attacking-lab/enochecker-core", rev = "v0.11.0", group = "prod" },
+	{ path = "lib/enochecker-core", editable = true, extra = "dev" }
+]
+
+[tool.uv]
+default-groups = ["prod"]
+conflicts = [
+	[
+		{ group = "prod" },
+		{ extra = "dev" }
+	],
 ]
