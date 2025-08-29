@@ -198,7 +198,7 @@ wheels = [
 [[package]]
 name = "enochecker-core"
 version = "0.11.0"
-source = { git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.0#a9c45467ca6c0695b3dfd5233ad5e2eb8c2a57c3" }
+source = { git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.1#5b5d705adbe9163f8c36c8aef09f4b2de229e9d2" }
 resolution-markers = [
     "python_full_version >= '3.10'",
     "python_full_version < '3.10'",
@@ -229,7 +229,7 @@ typing = [{ name = "mypy", specifier = ">=1.17.1" }]
 
 [[package]]
 name = "enochecker3"
-version = "0.10.1"
+version = "0.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -252,7 +252,7 @@ lint = [
     { name = "ruff" },
 ]
 prod = [
-    { name = "enochecker-core", version = "0.11.0", source = { git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.0#a9c45467ca6c0695b3dfd5233ad5e2eb8c2a57c3" } },
+    { name = "enochecker-core", version = "0.11.0", source = { git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.1#5b5d705adbe9163f8c36c8aef09f4b2de229e9d2" } },
 ]
 test = [
     { name = "coverage" },
@@ -278,7 +278,7 @@ provides-extras = ["dev"]
 dev = []
 format = [{ name = "ruff", specifier = ">=0.12.10" }]
 lint = [{ name = "ruff", specifier = ">=0.12.10" }]
-prod = [{ name = "enochecker-core", git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.0" }]
+prod = [{ name = "enochecker-core", git = "https://github.com/attacking-lab/enochecker-core?rev=v0.11.1" }]
 test = [
     { name = "coverage", specifier = ">=7.10.5" },
     { name = "pytest", specifier = ">=8.4.1" },
