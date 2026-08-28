@@ -44,7 +44,7 @@ async def getflag_test(
     assert_in(task.flag, r.text, "flag missing from note")
 
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_test(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     r = await client.get(
         "/note/*",

@@ -71,7 +71,7 @@ async def getflag_with_targeting(
     response = await client.get(f"/user/{username}/bio")
     assert_in(task.flag, response.text)
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_example(
     task: ExploitCheckerTaskMessage,
     client: AsyncClient,
@@ -195,10 +195,13 @@ export MONGO_PASSWORD=secret
 
 ### Can I use multiple variant ids in a single function?
 
-Yes. Use shared functions when variants differ only in small details:
+Yes, by stacking the decorator. Use shared functions when variants differ only in
+small details:
 
 ```python
-@checker.putflag(0, 1, 2)
+@checker.putflag(0)
+@checker.putflag(1)
+@checker.putflag(2)
 async def putflag_variants(task: PutflagCheckerTaskMessage, client: AsyncClient, db: ChainDB) -> str:
     username = f"user_{secrets.token_hex(8)}"
     password = secrets.token_hex(16)

@@ -21,15 +21,17 @@ async def test_get_service_info():
     """Test that get_service_info returns correct checker information."""
     checker = Enochecker("test_service", 8080)
 
-    @checker.putflag(0, 1)
+    @checker.putflag(0)
+    @checker.putflag(1)
     async def putflag_test() -> str:
         return "attack_info"
 
-    @checker.getflag(0, 1)
+    @checker.getflag(0)
+    @checker.getflag(1)
     async def getflag_test() -> None:
         pass
 
-    @checker.exploit(0)
+    @checker.exploit(0, 0)
     async def exploit_test() -> str:
         return "ENO{flag}"
 
@@ -38,7 +40,7 @@ async def test_get_service_info():
     assert info.service_name == "test_service"
     assert info.flag_variants == 2
     assert info.noise_variants == 0
-    assert info.exploit_variants == 1
+    assert info.exploit_variants == [0]
     assert info.havoc_variants == 0
 
 
@@ -151,7 +153,7 @@ def test_fastapi_app_property(
     async def getnoise_test() -> None:
         pass
 
-    @checker.exploit(0)
+    @checker.exploit(0, 0)
     async def exploit_test() -> None:
         pass
 

@@ -55,7 +55,7 @@ async def getflag_test(
     assert_in(task.flag, r.text, "flag missing from note")
 
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_test(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
     r = await client.get(
         "/note/*",
@@ -73,6 +73,28 @@ uvicorn --reload example:checker.app
 
 And browse to (http://localhost:8000/docs) to explore the web interface, which allows you to send requests to the checker.
 
+
+## Exploits and Flag Stores
+
+Every exploit targets exactly one flag store. Unlike the other methods, which take
+a list of variant ids, `exploit` takes a single exploit variant id followed by the
+flag variant it targets:
+
+```python
+@checker.exploit(0, 0)  # exploit variant 0, against flag store 0
+async def exploit_note_idor(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    ...
+
+@checker.exploit(1, 1)  # exploit variant 1, against flag store 1
+async def exploit_admin_sqli(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
+    ...
+```
+
+The checker reports this mapping as `exploitVariants` in its `GET /service`
+response: a list indexed by exploit variant id, whose length is the number of
+exploits. Testing tools use it to pair each exploit with the `putflag` variant that
+stored the flag it is supposed to retrieve, instead of trying every combination.
+Every flag store should be covered by at least one exploit.
 
 ## Telemetry
 The checker supports OpenTelemetry, with this configuration:

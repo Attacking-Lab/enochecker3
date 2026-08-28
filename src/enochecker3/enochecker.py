@@ -204,6 +204,9 @@ class Enochecker:
             CheckerMethod.TEST: {},
         }
 
+        # Maps each exploit variant_id to the flag variant_id (flag store) it targets
+        self._exploit_flag_variants: Dict[int, int] = {}
+
     async def _init(self) -> None:
         mongo_host = os.getenv("MONGO_HOST", "127.0.0.1")
         mongo_port = os.getenv("MONGO_PORT", 27017)
@@ -243,53 +246,76 @@ class Enochecker:
     def _define_method(
         self,
         method: CheckerMethod,
-        *variant_ids: int,
-    ) -> Callable[[Callable[..., Any]], None]:
-        if not variant_ids:
+        variant_id: int,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        if variant_id < 0:
             raise InvalidVariantIdsException(
-                "Must specify at least one variant_id for a method"
+                f"variant_id {variant_id} must not be negative"
             )
 
-        if len(variant_ids) != len(set(variant_ids)):
-            raise InvalidVariantIdsException("variant_id must be unique")
+        if variant_id in self._method_variants[method]:
+            raise InvalidVariantIdsException(
+                f"Variant_id {variant_id} already defined for method {method}"
+            )
 
-        for variant_id in variant_ids:
-            if variant_id < 0:
-                raise InvalidVariantIdsException(
-                    f"variant_id {variant_id} must not be negative"
-                )
-
-            if variant_id in self._method_variants[method]:
-                raise InvalidVariantIdsException(
-                    f"Variant_id {variant_id} already defined for method {method}"
-                )
-
-        def wrapper(f: Callable[..., Any]) -> None:
-            for variant_id in variant_ids:
-                self._method_variants[method][variant_id] = f
+        def wrapper(f: Callable[..., Any]) -> Callable[..., Any]:
+            self._method_variants[method][variant_id] = f
+            return f
 
         return wrapper
 
-    def putflag(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.PUTFLAG, *variant_ids)
+    def putflag(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.PUTFLAG, variant_id)
 
-    def getflag(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.GETFLAG, *variant_ids)
+    def getflag(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.GETFLAG, variant_id)
 
-    def putnoise(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.PUTNOISE, *variant_ids)
+    def putnoise(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.PUTNOISE, variant_id)
 
-    def getnoise(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.GETNOISE, *variant_ids)
+    def getnoise(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.GETNOISE, variant_id)
 
-    def havoc(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.HAVOC, *variant_ids)
+    def havoc(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.HAVOC, variant_id)
 
-    def exploit(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.EXPLOIT, *variant_ids)
+    def exploit(
+        self, variant_id: int, flag_variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """
+        Define the exploit variant_id against the flag store flag_variant_id.
 
-    def test(self, *variant_ids: int) -> Callable[[Callable[..., Any]], None]:
-        return self._define_method(CheckerMethod.TEST, *variant_ids)
+        Each exploit targets exactly one flag store, so that testing tools know
+        which putflag variant to pair it with instead of trying all of them.
+        """
+        if flag_variant_id < 0:
+            raise InvalidVariantIdsException(
+                f"flag_variant_id {flag_variant_id} must not be negative"
+            )
+
+        define = self._define_method(CheckerMethod.EXPLOIT, variant_id)
+
+        def wrapper(f: Callable[..., Any]) -> Callable[..., Any]:
+            define(f)
+            self._exploit_flag_variants[variant_id] = flag_variant_id
+            return f
+
+        return wrapper
+
+    def test(
+        self, variant_id: int
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self._define_method(CheckerMethod.TEST, variant_id)
 
     def resolve_injector(self, name: str, t: type) -> Callable[..., Any]:
         """
@@ -771,7 +797,7 @@ class Enochecker:
     # variant_id validation #
     #########################
 
-    def _validate_variant_ids(self) -> Tuple[int, int, int, int, int]:
+    def _validate_variant_ids(self) -> Tuple[int, int, int, List[int], int]:
         if env := os.environ.get("ENOCHECKER_FLAG_VARIANTS"):
             flag_variants = int(env)
         else:
@@ -800,9 +826,9 @@ class Enochecker:
             havoc_variants = len(self._method_variants[CheckerMethod.HAVOC])
 
         if env := os.environ.get("ENOCHECKER_EXPLOIT_VARIANTS"):
-            exploit_variants = int(env)
+            exploit_variant_count = int(env)
         else:
-            exploit_variants = len(self._method_variants[CheckerMethod.EXPLOIT])
+            exploit_variant_count = len(self._method_variants[CheckerMethod.EXPLOIT])
 
         if env := os.environ.get("ENOCHECKER_TEST_VARIANTS"):
             test_variants = int(env)
@@ -812,6 +838,10 @@ class Enochecker:
         for method in self._method_variants.keys():
             self._ensure_sequential_variant_ids(method)
 
+        exploit_variants = self._collect_exploit_variants(
+            exploit_variant_count, flag_variants
+        )
+
         return (
             flag_variants,
             noise_variants,
@@ -819,6 +849,27 @@ class Enochecker:
             exploit_variants,
             test_variants,
         )
+
+    def _collect_exploit_variants(
+        self, exploit_variant_count: int, flag_variants: int
+    ) -> List[int]:
+        exploit_variants = []
+        for variant_id in range(exploit_variant_count):
+            if variant_id not in self._exploit_flag_variants:
+                raise InvalidVariantIdsException(
+                    f"No flag_variant_id defined for exploit variant_id {variant_id}"
+                )
+
+            flag_variant_id = self._exploit_flag_variants[variant_id]
+            if flag_variant_id >= flag_variants:
+                raise InvalidVariantIdsException(
+                    f"Exploit variant_id {variant_id} targets flag_variant_id "
+                    f"{flag_variant_id}, but only {flag_variants} flag variants exist"
+                )
+
+            exploit_variants.append(flag_variant_id)
+
+        return exploit_variants
 
     def _ensure_sequential_variant_ids(self, method: CheckerMethod) -> None:
         keys = sorted(list(self._method_variants[method].keys()))

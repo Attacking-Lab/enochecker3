@@ -147,7 +147,7 @@ Logging with automatic task context. Includes `service_name`, `checker_name`, an
 ```python
 import logging
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_with_logging(
     task: ExploitCheckerTaskMessage,
     client: AsyncClient,
@@ -267,7 +267,7 @@ Find and validate flags in exploit methods. Only available in exploit methods. A
 ```python
 from enochecker3.utils import FlagSearcher
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_with_flag_search(
     task: ExploitCheckerTaskMessage,
     client: AsyncClient,

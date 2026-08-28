@@ -41,7 +41,7 @@ async def _get_db_connection(task: CheckerTaskMessage) -> ManagedPgConnection:
     finally:
         await conn.close()
 
-@checker.exploit(0)
+@checker.exploit(0, 0)
 async def exploit_sql_injection(
     task: ExploitCheckerTaskMessage,
     conn: ManagedPgConnection,  # Must use the same type alias
