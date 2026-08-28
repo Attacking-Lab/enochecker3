@@ -44,6 +44,6 @@ steps:
       registry: oci.atklab.cloud
       tags: latest
       username:
-        from_secret: oci_push_username
+        from_secret: REGISTRY_USERNAME
       password:
-        from_secret: oci_push_password
+        from_secret: REGISTRY_PASSWORD
