@@ -62,7 +62,7 @@ steps:
       CHECKER_PULL_TOKEN:
         from_secret: checker_pull_token
     commands:
-      - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
+      - git-pass -u x -p "$CHECKER_PULL_TOKEN" -U https://git.atklab.cloud -- just -v sync
 
   - name: format
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
