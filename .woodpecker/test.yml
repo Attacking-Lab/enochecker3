@@ -1,3 +1,25 @@
+# enochecker-core is a private git dependency (see pyproject.toml's
+# [tool.uv.sources], pinned at git.atklab.cloud/atklab/enochecker-core),
+# so resolving it needs credentials. Rather than repeating a
+# `git config --global` credential dance in every step (as
+# atklab/enochecker-exploit's ci.yaml does, since Woodpecker steps don't
+# share $HOME with each other), the `sync` step below authenticates just
+# the one `uv sync` invocation that actually touches the git remote,
+# using git-pass-helper's `git-pass` wrapper and a checker_pull_token
+# secret. Woodpecker *does* share the workspace (including the .venv
+# `just sync` builds there) across a pipeline's steps, so every other
+# step below just reuses that already-synced --frozen venv and needs no
+# credentials of its own.
+#
+# format/lint/mypy/ty/test/build all depend only on `sync`, not on each
+# other, so Woodpecker runs them concurrently via its depends_on DAG
+# mode -- same split-into-parallel-steps structure as
+# atklab/enochecker-exploit's ci.yaml, adapted to this repo's existing
+# per-Python-version matrix (kept here since it's cheap: each matrix
+# value already runs off the stock python:${PYTHON_VERSION} image,
+# unlike enochecker-exploit which needed a prebuilt custom image and
+# dropped the matrix to avoid multiplying image builds).
+
 matrix:
   PYTHON_VERSION:
     - "3.10"
@@ -14,18 +36,74 @@ services:
     image: mongo
 
 steps:
+  - name: sync
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    secrets: [checker_pull_token]
+    commands:
+      - pip install uv==0.8.5 rust-just git-pass-helper==0.2.1
+      - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
+
+  - name: format
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    depends_on:
+      - name: sync
+    commands:
+      - pip install uv==0.8.5 rust-just
+      - just -v format
+
+  - name: lint
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    depends_on:
+      - name: sync
+    commands:
+      - pip install uv==0.8.5 rust-just
+      - just -v lint
+
+  - name: mypy
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    depends_on:
+      - name: sync
+    commands:
+      - pip install uv==0.8.5 rust-just
+      - just -v mypy
+
+  - name: ty
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    depends_on:
+      - name: sync
+    commands:
+      - pip install uv==0.8.5 rust-just
+      - just -v ty
+
   - name: test
     image: python:${PYTHON_VERSION}
     environment:
+      UV_FLAGS: "--exact --isolated --frozen"
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
+    depends_on:
+      - name: sync
     commands:
       - pip install uv==0.8.5 rust-just
-      - export UV_FLAGS="--exact --isolated --frozen"
-      - just -v format
-      - just -v lint
-      - just -v mypy
-      - just -v ty
       - just -v test
+
+  - name: build
+    image: python:${PYTHON_VERSION}
+    environment:
+      UV_FLAGS: "--exact --isolated --frozen"
+    depends_on:
+      - name: sync
+    commands:
+      - pip install uv==0.8.5 rust-just
       - just -v build
       - pip install dist/enochecker3-*.tar.gz
