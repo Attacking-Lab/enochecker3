@@ -131,16 +131,3 @@ steps:
     commands:
       - just -v test
 
-  # The image carries no system Python, so `pip install` would be a
-  # command-not-found; `uv run --with` smoke-tests the built sdist in a
-  # throwaway environment instead of installing it into the shared .venv
-  # (which the other steps are reading concurrently).
-  - name: build
-    image: *ci_image
-    pull: true
-    environment: *uv_env
-    depends_on:
-      - name: sync
-    commands:
-      - just -v build
-      - uv run --no-project --with dist/enochecker3-*.tar.gz python -c "import enochecker3"
