@@ -1,3 +1,4 @@
+import os
 import secrets
 
 import pymongo
@@ -12,7 +13,7 @@ from enochecker3 import ChainDB, MumbleException
 
 @pytest_asyncio.fixture
 async def collection():
-    mongo: AsyncMongoClient = AsyncMongoClient()
+    mongo: AsyncMongoClient = AsyncMongoClient(os.getenv("MONGO_HOST", "localhost"))
     db: AsyncDatabase = mongo["enochecker3_tests"]
     chain_collection: AsyncCollection = db["chain_db"]
 

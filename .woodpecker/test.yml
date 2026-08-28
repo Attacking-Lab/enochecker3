@@ -1,0 +1,32 @@
+matrix:
+  PYTHON_VERSION:
+    - "3.10"
+    - "3.11"
+    - "3.12"
+    - "3.13"
+    - "3.14"
+
+when:
+  - event: [push, manual]
+
+services:
+  - name: mongo
+    image: mongo
+
+steps:
+  - name: test
+    image: python:${PYTHON_VERSION}
+    environment:
+      MONGO_HOST: mongo
+      TEST_FLAGS: --with_mongodb
+    commands:
+      - apt-get update -y && apt-get install -y make
+      - pip install uv==0.8.5
+      - export UV_FLAGS="--exact --isolated --frozen"
+      - make --trace format
+      - make --trace lint
+      - make --trace mypy
+      - make --trace ty
+      - make --trace test
+      - make --trace build
+      - pip install dist/enochecker3-*.tar.gz
