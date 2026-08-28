@@ -19,31 +19,15 @@
 # requires-python range matters for a library, unlike enochecker-exploit
 # which dropped its matrix to avoid multiplying image builds).
 #
-# `ci-image` builds and pushes .woodpecker/Dockerfile -- one tag per
-# PYTHON_VERSION matrix value, since it bakes in a specific Python base
-# image -- the same thing the justfile's ci-image-build/ci-image-push
-# recipes do by hand. It only runs when .woodpecker/Dockerfile changed
-# (`when.path`, which Woodpecker treats as satisfied for events like
-# `manual` that carry no changed-file list); `sync` depends on it with
-# `optional: true` so sync (and everything chained off it) still runs
-# when the build is skipped, and every image-consuming step sets
-# `pull: true` so a pipeline that *did* rebuild the image picks up the
-# fresh tag instead of a stale cached copy. Mirrors
-# atklab/enochecker-exploit's `ci-image` step, adapted to push one tag
-# per PYTHON_VERSION instead of a single `:latest`.
-#
-# This agent runs steps under the sysbox runtime, which lets a plain,
-# unprivileged `docker:dind` step run its own nested dockerd safely --
-# no `privileged: true` and no "trusted repo" project setting needed.
-# `dockerd-entrypoint.sh` is started in the background by hand, since
-# Woodpecker replaces the image's own entrypoint with the step's
-# `commands:`, then the following commands wait for the daemon socket
-# before touching it.
-#
-# Pushing to oci.atklab.cloud authenticates via oci.atklab.cloud being
-# registered as a registry in this repo's Woodpecker project settings
-# (provisioned out of band, same as atklab/enochecker-exploit's) rather
-# than a secrets-driven `docker login` here.
+# .woodpecker/Dockerfile (one tag per PYTHON_VERSION, since it bakes in a
+# specific Python base image) is built and pushed by a separate,
+# non-matrixed workflow, .woodpecker/ci-image.yml -- see that file for
+# why. This workflow declares a workflow-level `depends_on: [ci-image]`
+# (optional: true, so it still runs unmodified when ci-image.yml is
+# skipped because the Dockerfile didn't change) instead of an in-file
+# step dependency, and every image-consuming step below sets
+# `pull: true` so a run that *did* rebuild the image picks up the fresh
+# tag instead of a stale cached copy.
 
 matrix:
   PYTHON_VERSION:
@@ -56,30 +40,21 @@ matrix:
 when:
   - event: [push, manual]
 
+depends_on:
+  - name: ci-image
+    optional: true
+
 services:
   - name: mongo
     image: mongo
 
 steps:
-  - name: ci-image
-    image: docker:dind
-    commands:
-      - dockerd-entrypoint.sh &
-      - timeout 30 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
-      - docker build -f .woodpecker/Dockerfile --build-arg PYTHON_VERSION=${PYTHON_VERSION} -t oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION} .
-      - docker push oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
-    when:
-      - path: .woodpecker/Dockerfile
-
   - name: sync
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     secrets: [checker_pull_token]
-    depends_on:
-      - name: ci-image
-        optional: true
     commands:
       - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
 
