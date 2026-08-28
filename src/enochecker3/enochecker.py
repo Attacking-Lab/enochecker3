@@ -153,9 +153,29 @@ class DependencyInjector:
 
 
 class Enochecker:
-    def __init__(self, service_name: str, service_port: int) -> None:
+    def __init__(
+        self,
+        service_name: str,
+        service_port: int,
+        *,
+        mongo_client: Optional[AsyncMongoClient[Dict[str, Any]]] = None,
+    ) -> None:
+        """
+        Args:
+            service_name: Name of the checked service.
+            service_port: Port the checked service listens on.
+            mongo_client: Pre-built Mongo client to use instead of connecting
+                via the MONGO_HOST/MONGO_PORT/MONGO_USER/MONGO_PASSWORD env
+                vars. Intended for tests, e.g. passing an
+                `enochecker3.mock.MockAsyncMongoClient` to exercise ChainDB
+                and other MongoDB-backed dependencies without a real
+                MongoDB server.
+        """
         self.service_name: str = service_name
         self.service_port: int = service_port
+        self._injected_mongo_client: Optional[AsyncMongoClient[Dict[str, Any]]] = (
+            mongo_client
+        )
 
         self.checker_name: str = service_name + "Checker"
 
@@ -208,27 +228,32 @@ class Enochecker:
         self._exploit_flag_variants: Dict[int, int] = {}
 
     async def _init(self) -> None:
-        mongo_host = os.getenv("MONGO_HOST", "127.0.0.1")
-        mongo_port = os.getenv("MONGO_PORT", 27017)
-        mongo_user = os.getenv("MONGO_USER", None)
-        mongo_password = os.getenv("MONGO_PASSWORD", None)
-
-        if (mongo_user and not mongo_password) or (not mongo_user and mongo_password):
-            raise ValueError(
-                "Cannot set only MONGO_USER or MONGO_PASSWORD, must set none or both"
-            )
-
-        if mongo_user:
-            connection_string = (
-                f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}"
-            )
-        else:
-            connection_string = f"mongodb://{mongo_host}:{mongo_port}"
-
         PymongoInstrumentor().instrument()
-        self._mongo: AsyncMongoClient[Dict[str, Any]] = AsyncMongoClient(
-            connection_string
-        )
+
+        if self._injected_mongo_client is not None:
+            self._mongo: AsyncMongoClient[Dict[str, Any]] = self._injected_mongo_client
+        else:
+            mongo_host = os.getenv("MONGO_HOST", "127.0.0.1")
+            mongo_port = os.getenv("MONGO_PORT", 27017)
+            mongo_user = os.getenv("MONGO_USER", None)
+            mongo_password = os.getenv("MONGO_PASSWORD", None)
+
+            if (mongo_user and not mongo_password) or (
+                not mongo_user and mongo_password
+            ):
+                raise ValueError(
+                    "Cannot set only MONGO_USER or MONGO_PASSWORD, must set none or both"
+                )
+
+            if mongo_user:
+                connection_string = (
+                    f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}"
+                )
+            else:
+                connection_string = f"mongodb://{mongo_host}:{mongo_port}"
+
+            self._mongo = AsyncMongoClient(connection_string)
+
         self._mongodb: AsyncDatabase[Dict[str, Any]] = self._mongo[self.checker_name]
 
         self._chain_collection: AsyncCollection[Dict[str, Any]] = self._mongodb[

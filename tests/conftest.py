@@ -1,11 +1,12 @@
 import pytest
 
 from enochecker3 import Enochecker
+from enochecker3.mock import MockAsyncMongoClient
 
 
 @pytest.fixture
 def checker() -> Enochecker:
-    return Enochecker("asd", 1234)
+    return Enochecker("asd", 1234, mongo_client=MockAsyncMongoClient())
 
 
 def pytest_addoption(parser):

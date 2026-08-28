@@ -155,7 +155,7 @@ curl -X POST http://localhost:8000/ -H "Content-Type: application/json" -d '{
 }'
 ```
 
-**Python API** (requires MongoDB):
+**Python API** (see below for running without a real MongoDB):
 ```python
 import asyncio
 from enochecker3 import PutflagCheckerTaskMessage
@@ -177,7 +177,28 @@ asyncio.run(test())
 
 ### Do I need MongoDB running?
 
-Yes, ChainDB requires MongoDB. Start it with Docker:
+Only if you're running the checker for real. ChainDB and the other MongoDB-backed
+dependencies (`AsyncCollection`, `AsyncDatabase`) need *some* MongoDB, but for tests
+you don't need a real server or Docker: pass an in-memory
+`enochecker3.mock.MockAsyncMongoClient` instead (requires the `testing` extra,
+`pip install enochecker3[testing]`).
+
+```python
+from enochecker3 import Enochecker
+from enochecker3.mock import MockAsyncMongoClient
+
+checker = Enochecker("ExampleService", 1337, mongo_client=MockAsyncMongoClient())
+
+async def test():
+    await checker._init()
+    result = await checker._call_putflag(task)
+    ...
+```
+
+State lives only in the Python process, so each `MockAsyncMongoClient()` starts
+empty and nothing needs cleaning up between test runs.
+
+To run against a real server instead, start one with Docker:
 ```bash
 docker run -d -p 27017:27017 mongo:latest
 ```

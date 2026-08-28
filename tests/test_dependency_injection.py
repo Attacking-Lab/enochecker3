@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -174,76 +174,56 @@ async def test_get_http_client_dependency(
 
 
 @pytest.mark.asyncio
-@pytest.mark.mongodb
 async def test_get_chaindb_dependency(
     checker: Enochecker, havoc_task: HavocCheckerTaskMessage
 ):
     """Test that ChainDB dependency is correctly injected."""
 
-    # Initialize MongoDB
-    with patch("enochecker3.enochecker.AsyncMongoClient") as mock_client:
-        mock_db = AsyncMock()
-        mock_collection = AsyncMock()
-        mock_collection.create_index = AsyncMock()
-        mock_db.__getitem__.return_value = mock_collection
-        mock_client.return_value.__getitem__.return_value = mock_db
-
-        await checker._init()
+    await checker._init()
 
     @checker.havoc(0)
     async def havoc_test(db: ChainDB):
         assert isinstance(db, ChainDB)
         assert db.task_chain_id == "task_chain_id"
 
+        # The injected ChainDB is backed by a real (in-memory) collection.
+        await db.set("k", "v")
+        assert await db.get("k") == "v"
+
     result = await checker._call_havoc(havoc_task)
     assert result.result == CheckerTaskResult.OK
 
 
 @pytest.mark.asyncio
-@pytest.mark.mongodb
 async def test_get_collection_dependency(
     checker: Enochecker, havoc_task: HavocCheckerTaskMessage
 ):
     """Test that AsyncCollection dependency is correctly injected."""
 
-    # Initialize MongoDB
-    with patch("enochecker3.enochecker.AsyncMongoClient") as mock_client:
-        mock_db = AsyncMock()
-        mock_collection = AsyncMock()
-        mock_collection.create_index = AsyncMock()
-        mock_db.__getitem__.return_value = mock_collection
-        mock_client.return_value.__getitem__.return_value = mock_db
-
-        await checker._init()
+    await checker._init()
 
     @checker.havoc(0)
     async def havoc_test(collection: AsyncCollection):
-        assert isinstance(collection, AsyncMock)
+        await collection.insert_one({"foo": "bar"})
+        assert await collection.find_one({"foo": "bar"}) is not None
 
     result = await checker._call_havoc(havoc_task)
     assert result.result == CheckerTaskResult.OK
 
 
 @pytest.mark.asyncio
-@pytest.mark.mongodb
 async def test_get_database_dependency(
     checker: Enochecker, havoc_task: HavocCheckerTaskMessage
 ):
     """Test that AsyncDatabase dependency is correctly injected."""
 
-    # Initialize MongoDB
-    with patch("enochecker3.enochecker.AsyncMongoClient") as mock_client:
-        mock_db = AsyncMock()
-        mock_collection = AsyncMock()
-        mock_collection.create_index = AsyncMock()
-        mock_db.__getitem__.return_value = mock_collection
-        mock_client.return_value.__getitem__.return_value = mock_db
-
-        await checker._init()
+    await checker._init()
 
     @checker.havoc(0)
     async def havoc_test(database: AsyncDatabase):
-        assert isinstance(database, AsyncMock)
+        collection = database["some_collection"]
+        await collection.insert_one({"foo": "bar"})
+        assert await collection.find_one({"foo": "bar"}) is not None
 
     result = await checker._call_havoc(havoc_task)
     assert result.result == CheckerTaskResult.OK
