@@ -58,7 +58,9 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
+      CHECKER_PULL_TOKEN:
+        from_secret: CHECKER_PULL_TOKEN
     secrets: [checker_pull_token]
     commands:
       - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
@@ -68,7 +70,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
     depends_on:
       - name: sync
     commands:
@@ -79,7 +81,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
     depends_on:
       - name: sync
     commands:
@@ -90,7 +92,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
     depends_on:
       - name: sync
     commands:
@@ -101,7 +103,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
     depends_on:
       - name: sync
     commands:
@@ -112,7 +114,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
     depends_on:
@@ -125,7 +127,7 @@ steps:
     pull: true
     environment:
       UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: ${PYTHON_VERSION}
+      UV_PYTHON: "${PYTHON_VERSION}"
     depends_on:
       - name: sync
     commands:
