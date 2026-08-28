@@ -19,15 +19,19 @@
 # requires-python range matters for a library, unlike enochecker-exploit
 # which dropped its matrix to avoid multiplying image builds).
 #
-# .woodpecker/Dockerfile (one tag per PYTHON_VERSION, since it bakes in a
-# specific Python base image) is built and pushed by a separate,
-# non-matrixed workflow, .woodpecker/ci-image.yml -- see that file for
-# why. This workflow declares a workflow-level `depends_on: [ci-image]`
-# (optional: true, so it still runs unmodified when ci-image.yml is
-# skipped because the Dockerfile didn't change) instead of an in-file
-# step dependency, and every image-consuming step below sets
-# `pull: true` so a run that *did* rebuild the image picks up the fresh
-# tag instead of a stale cached copy.
+# The image itself (.woodpecker/Dockerfile) doesn't bake in a specific
+# Python version -- it just carries uv, and every step below sets
+# UV_PYTHON to the matrix's PYTHON_VERSION, so `uv sync` and friends
+# provision (downloading if needed) and use that interpreter. That
+# means one image tag (`latest`) serves every matrix value, built and
+# pushed by a separate, non-matrixed workflow, .woodpecker/ci-image.yml
+# -- see that file for why it's split out. This workflow declares a
+# workflow-level `depends_on: [ci-image]` (optional: true, so it still
+# runs unmodified when ci-image.yml is skipped because the Dockerfile
+# didn't change) instead of an in-file step dependency, and every
+# image-consuming step below sets `pull: true` so a run that *did*
+# rebuild the image picks up the fresh tag instead of a stale cached
+# copy.
 
 matrix:
   PYTHON_VERSION:
@@ -50,59 +54,65 @@ services:
 
 steps:
   - name: sync
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     secrets: [checker_pull_token]
     commands:
       - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
 
   - name: format
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
     commands:
       - just -v format
 
   - name: lint
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
     commands:
       - just -v lint
 
   - name: mypy
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
     commands:
       - just -v mypy
 
   - name: ty
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
     commands:
       - just -v ty
 
   - name: test
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
     depends_on:
@@ -111,10 +121,11 @@ steps:
       - just -v test
 
   - name: build
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
+      UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
     commands:

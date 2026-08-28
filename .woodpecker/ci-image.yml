@@ -1,37 +1,34 @@
-# Builds and pushes .woodpecker/Dockerfile -- one tag per Python version
-# test.yml's matrix needs. This used to be a step *inside* test.yml's own
-# matrixed workflow, which meant Woodpecker ran it once per PYTHON_VERSION
-# matrix value: five independent docker:dind builds any time this
-# Dockerfile changed, each redoing the same dockerd startup and
-# apt-get/uv/just/git-pass-helper install work, and racing their pushes
-# against each other. Splitting it into its own non-matrixed workflow
-# means it builds every tag from a single dockerd, once per CI run.
+# Builds and pushes .woodpecker/Dockerfile. This used to be a step
+# *inside* test.yml's own matrixed workflow, with one image tag per
+# PYTHON_VERSION matrix value -- Woodpecker ran it once per matrix
+# value any time the Dockerfile changed, five independent docker:dind
+# builds each redoing the same dockerd startup and apt-get/uv/just/
+# git-pass-helper install work, racing their pushes against each other.
+#
+# Splitting it into its own non-matrixed workflow only fixed the
+# "once per matrix value" half; the image itself is also no longer
+# Python-version-specific (see Dockerfile -- test.yml's matrix now
+# picks its interpreter via uv, not via the image), so there's only a
+# single `latest` tag to build and push, and no PYTHON_VERSION list
+# here to keep in sync with test.yml's matrix.
+#
+# Builds with the official woodpeckerci/plugin-docker-buildx plugin
+# rather than a hand-rolled docker:dind + `docker build`/`docker push`
+# script, per review feedback on this MR.
 #
 # test.yml declares a workflow-level `depends_on: [ci-image]` (optional:
 # true, so test.yml still runs when this workflow is skipped) instead of
-# an in-file step dependency, and pulls this image with `pull: true` so a
-# run that *did* rebuild it picks up the fresh tag instead of a stale
-# cached copy. Woodpecker only shares the workspace across a *workflow's
-# own* steps, not across separate workflow files, but that's fine here:
-# the only thing this workflow hands to test.yml is the pushed image, via
-# the registry, not the local filesystem.
+# an in-file step dependency, and pulls this image with `pull: true` so
+# a run that *did* rebuild it picks up the fresh tag instead of a stale
+# cached copy.
 #
-# PYTHON_VERSIONS below must be kept in sync by hand with test.yml's
-# matrix.PYTHON_VERSION list -- Woodpecker doesn't share matrix values
-# across separate workflow files.
-#
-# This agent runs steps under the sysbox runtime, which lets a plain,
-# unprivileged `docker:dind` step run its own nested dockerd safely --
-# no `privileged: true` and no "trusted repo" project setting needed.
-# `dockerd-entrypoint.sh` is started in the background by hand, since
-# Woodpecker replaces the image's own entrypoint with the step's
-# `commands:`, then the following commands wait for the daemon socket
-# before touching it.
-#
-# Pushing to oci.atklab.cloud authenticates via oci.atklab.cloud being
-# registered as a registry in this repo's Woodpecker project settings
-# (provisioned out of band) rather than a secrets-driven `docker login`
-# here.
+# Woodpecker's own per-repo "Registries" credentials are pull-only and
+# never exposed to steps, so they can't authenticate this push (see
+# https://woodpecker-ci.org/docs/usage/registries). Push instead uses
+# the oci_push_username/oci_push_password secrets below, which need
+# provisioning out of band (same as the checker_pull_token secret
+# test.yml's sync step depends on) -- a robot account with push access
+# to oci.atklab.cloud/enochecker3.
 
 when:
   - event: [push, manual]
@@ -39,12 +36,14 @@ when:
 
 steps:
   - name: ci-image
-    image: docker:dind
-    commands:
-      - dockerd-entrypoint.sh &
-      - timeout 30 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
-      - |
-        for PYTHON_VERSION in 3.10 3.11 3.12 3.13 3.14; do
-          docker build -f .woodpecker/Dockerfile --build-arg PYTHON_VERSION=${PYTHON_VERSION} -t oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION} .
-          docker push oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
-        done
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      dockerfile: .woodpecker/Dockerfile
+      context: .
+      repo: oci.atklab.cloud/enochecker3/enochecker3-ci
+      registry: oci.atklab.cloud
+      tags: latest
+      username:
+        from_secret: oci_push_username
+      password:
+        from_secret: oci_push_password
