@@ -8,31 +8,31 @@ all: format lint mypy ty test
 fix: format-fix lint-fix
 
 format:
-	@{{uv_run}} ruff format --check
+    @{{ uv_run }} ruff format --check
 
 format-fix:
-	@{{uv_run}} ruff format
+    @{{ uv_run }} ruff format
 
 lint:
-	@{{uv_run}} ruff check
+    @{{ uv_run }} ruff check
 
 lint-fix:
-	@{{uv_run}} ruff check --fix
+    @{{ uv_run }} ruff check --fix
 
 mypy:
-	@{{uv_run}} mypy src/enochecker3/
+    @{{ uv_run }} mypy src/enochecker3/
 
 ty:
-	@{{uv_run}} ty check src/enochecker3/
+    @{{ uv_run }} ty check src/enochecker3/
 
 build:
-	@uv build
+    @uv build
 
 test:
-	@test -z "$(ls tests 2>/dev/null)" || ( \
-		{{uv_run}} coverage run -m pytest -W error -v {{test_flags}} && \
-		{{uv_run}} coverage report -m \
-	)
+    @test -z "$(ls tests 2>/dev/null)" || ( \
+    	{{ uv_run }} coverage run -m pytest -W error -v {{ test_flags }} && \
+    	{{ uv_run }} coverage report -m \
+    )
 
 sync:
-	@uv sync {{uv_flags}}
+    @uv sync {{ uv_flags }}
