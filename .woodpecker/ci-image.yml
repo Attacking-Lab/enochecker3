@@ -1,0 +1,49 @@
+# Builds and pushes .woodpecker/Dockerfile. This used to be a step
+# *inside* test.yml's own matrixed workflow, with one image tag per
+# PYTHON_VERSION matrix value -- Woodpecker ran it once per matrix
+# value any time the Dockerfile changed, five independent docker:dind
+# builds each redoing the same dockerd startup and apt-get/uv/just/
+# git-pass-helper install work, racing their pushes against each other.
+#
+# Splitting it into its own non-matrixed workflow only fixed the
+# "once per matrix value" half; the image itself is also no longer
+# Python-version-specific (see Dockerfile -- test.yml's matrix now
+# picks its interpreter via uv, not via the image), so there's only a
+# single `latest` tag to build and push, and no PYTHON_VERSION list
+# here to keep in sync with test.yml's matrix.
+#
+# Builds with the official woodpeckerci/plugin-docker-buildx plugin
+# rather than a hand-rolled docker:dind + `docker build`/`docker push`
+# script, per review feedback on this MR.
+#
+# test.yml declares a workflow-level `depends_on: [ci-image]` (optional:
+# true, so test.yml still runs when this workflow is skipped) instead of
+# an in-file step dependency, and pulls this image with `pull: true` so
+# a run that *did* rebuild it picks up the fresh tag instead of a stale
+# cached copy.
+#
+# Woodpecker's own per-repo "Registries" credentials are pull-only and
+# never exposed to steps, so they can't authenticate this push (see
+# https://woodpecker-ci.org/docs/usage/registries). Push instead uses
+# the oci_push_username/oci_push_password secrets below, which need
+# provisioning out of band (same as the checker_pull_token secret
+# test.yml's sync step depends on) -- a robot account with push access
+# to oci.atklab.cloud/enochecker3.
+
+when:
+  - event: [push, manual]
+    path: .woodpecker/Dockerfile
+
+steps:
+  - name: ci-image
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      dockerfile: .woodpecker/Dockerfile
+      context: .
+      repo: oci.atklab.cloud/enochecker3/enochecker3-ci
+      registry: oci.atklab.cloud
+      tags: latest
+      username:
+        from_secret: oci_push_username
+      password:
+        from_secret: oci_push_password
