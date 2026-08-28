@@ -54,7 +54,9 @@ class TestCheckerTaskMessage(CheckerTaskMessage):
 
 
 class BaseException(Exception):
-    def __init__(self, message: Optional[str], log_message: Optional[str] = None):
+    def __init__(
+        self, message: Optional[str], log_message: Optional[str] = None
+    ) -> None:
         self.message: Optional[str] = message
         self.log_message: Optional[str] = log_message
 
@@ -73,6 +75,6 @@ class InternalErrorException(BaseException):
         message: Optional[str],
         log_message: Optional[str] = None,
         inner: Optional[Exception] = None,
-    ):
+    ) -> None:
         super().__init__(message, log_message)
         self.inner: Optional[Exception] = inner

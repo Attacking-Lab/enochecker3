@@ -1,7 +1,7 @@
 import hashlib
 import re
 import traceback
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from .types import MumbleException
 
@@ -31,15 +31,15 @@ def assert_equals(o1: Any, o2: Any, message: Optional[str] = None) -> None:
 
 
 class FlagSearcher:
-    def __init__(self, flag_regex: str, flag_hash: str):
-        self._flag_re: re.Pattern = re.compile(flag_regex.encode())
+    def __init__(self, flag_regex: str, flag_hash: str) -> None:
+        self._flag_re: re.Pattern[bytes] = re.compile(flag_regex.encode())
         self.flag_hash: str = flag_hash
 
     def search_flag(self, haystack: Union[str, bytes]) -> Optional[bytes]:
-        if type(haystack) is str:
-            haystack = haystack.encode()
-        candidates = []
-        for flag in self._flag_re.findall(haystack):
+        data = haystack.encode() if isinstance(haystack, str) else haystack
+        candidates: List[bytes] = []
+        matches: List[bytes] = self._flag_re.findall(data)
+        for flag in matches:
             if self.flag_hash != "":
                 hash_ = hashlib.sha256(flag).hexdigest()
                 if hash_ == self.flag_hash:

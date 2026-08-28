@@ -10,7 +10,7 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.httpx import RequestInfo, ResponseInfo
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-from opentelemetry.sdk._logs._internal.export import (
+from opentelemetry.sdk._logs._internal.export import (  # type: ignore[attr-defined]
     BatchLogRecordProcessor,
     LogRecordExporter,
     LogRecordProcessor,
@@ -19,7 +19,7 @@ from opentelemetry.sdk._logs._internal.export import (
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import Span as SdkSpan
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (
+from opentelemetry.sdk.trace.export import (  # type: ignore[attr-defined]
     BatchSpanProcessor,
     SimpleSpanProcessor,
     SpanExporter,
@@ -192,7 +192,7 @@ def _nop(*args: Any, **kwargs: Any) -> None:
     pass
 
 
-async def async_request_hook(span: Span, request: RequestInfo):
+async def async_request_hook(span: Span, request: RequestInfo) -> None:
     span.update_name(f"{request.method.decode()} {request.url}")
     if request.headers:
         for k, v in request.headers.items():
@@ -203,7 +203,7 @@ async def async_response_hook(
     span: Span,
     request: RequestInfo,
     response: ResponseInfo,
-):
+) -> None:
     pass
 
 

@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import get_current_span
@@ -6,8 +6,10 @@ from pymongo.asynchronous.collection import AsyncCollection
 
 
 class ChainDB:
-    def __init__(self, collection: AsyncCollection, task_chain_id: str):
-        self.collection: AsyncCollection = collection
+    def __init__(
+        self, collection: AsyncCollection[Dict[str, Any]], task_chain_id: str
+    ) -> None:
+        self.collection: AsyncCollection[Dict[str, Any]] = collection
         self.task_chain_id: str = task_chain_id
 
     async def get(self, key: str) -> Any:

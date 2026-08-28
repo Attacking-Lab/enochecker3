@@ -104,7 +104,7 @@ class DependencyInjector:
                 http_client = await injector.get(httpx.AsyncClient)
     """
 
-    def __init__(self, checker: "Enochecker", task: CheckerTaskMessage):
+    def __init__(self, checker: "Enochecker", task: CheckerTaskMessage) -> None:
         self.checker = checker
         self.task = task
         # AsyncExitStack manages cleanup of async context managers (like sockets, clients)
@@ -153,7 +153,7 @@ class DependencyInjector:
 
 
 class Enochecker:
-    def __init__(self, service_name: str, service_port: int):
+    def __init__(self, service_name: str, service_port: int) -> None:
         self.service_name: str = service_name
         self.service_port: int = service_port
 
@@ -226,10 +226,14 @@ class Enochecker:
             connection_string = f"mongodb://{mongo_host}:{mongo_port}"
 
         PymongoInstrumentor().instrument()
-        self._mongo: AsyncMongoClient = AsyncMongoClient(connection_string)
-        self._mongodb: AsyncDatabase = self._mongo[self.checker_name]
+        self._mongo: AsyncMongoClient[Dict[str, Any]] = AsyncMongoClient(
+            connection_string
+        )
+        self._mongodb: AsyncDatabase[Dict[str, Any]] = self._mongo[self.checker_name]
 
-        self._chain_collection: AsyncCollection = self._mongodb["chain_db"]
+        self._chain_collection: AsyncCollection[Dict[str, Any]] = self._mongodb[
+            "chain_db"
+        ]
 
         await self._chain_collection.create_index(
             [("task_chain_id", pymongo.ASCENDING), ("key", pymongo.ASCENDING)],
@@ -570,7 +574,9 @@ class Enochecker:
     # Dependency Injection #
     ########################
 
-    def register_named_dependency(self, name: str = "") -> Callable[..., Any]:
+    def register_named_dependency(
+        self, name: str = ""
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """
         Register a named dependency that can be injected into checker methods.
 
@@ -610,7 +616,9 @@ class Enochecker:
 
             # Return type annotation is required so we know what type this injector provides
             if sig.return_annotation == Parameter.empty:
-                raise AttributeError(f"missing return annotation for {f.__name__}")
+                raise AttributeError(
+                    f"missing return annotation for {getattr(f, '__name__', f)}"
+                )
 
             # Prevent duplicate registrations
             if key in self._dependency_injections:
@@ -650,6 +658,12 @@ class Enochecker:
 
     # Built-in dependency providers - these are automatically registered and can be
     # injected into any checker method by declaring them as parameters
+    #
+    # Injector lookup keys are the raw annotation objects, so a provider's return
+    # annotation must stay identical to what a checker author writes on their
+    # parameter. Subscripting a generic here (AsyncCollection[Dict[str, Any]])
+    # produces a key that no longer equals the bare class every caller writes, and
+    # resolution fails at runtime. Hence the type-arg suppressions below.
 
     def _get_http_client(self, task: CheckerTaskMessage) -> httpx.AsyncClient:
         """
@@ -678,7 +692,7 @@ class Enochecker:
         """
         return ChainDB(self._chain_collection, task.task_chain_id)
 
-    def _get_motor_collection(self, task: CheckerTaskMessage) -> AsyncCollection:
+    def _get_motor_collection(self, task: CheckerTaskMessage) -> AsyncCollection:  # type: ignore[type-arg]
         """
         Provide a MongoDB collection scoped to the current team.
 
@@ -689,7 +703,7 @@ class Enochecker:
         """
         return self._mongodb[f"team_{task.team_id}"]
 
-    def _get_motor_database(self, task: CheckerTaskMessage) -> AsyncDatabase:
+    def _get_motor_database(self, task: CheckerTaskMessage) -> AsyncDatabase:  # type: ignore[type-arg]
         """
         Provide the MongoDB database instance for this checker.
 
@@ -711,7 +725,7 @@ class Enochecker:
         """
         return FlagSearcher(task.flag_regex, task.flag_hash)
 
-    def _get_logger_adapter(self, task: CheckerTaskMessage) -> logging.LoggerAdapter:
+    def _get_logger_adapter(self, task: CheckerTaskMessage) -> logging.LoggerAdapter:  # type: ignore[type-arg]
         """
         Provide a logger with task context automatically included.
 
@@ -731,7 +745,9 @@ class Enochecker:
 
     @contextlib.asynccontextmanager
     async def _get_async_socket(
-        self, task: CheckerTaskMessage, logger: logging.LoggerAdapter
+        self,
+        task: CheckerTaskMessage,
+        logger: logging.LoggerAdapter,  # type: ignore[type-arg]
     ) -> AsyncSocket:
         """
         Provide a raw TCP socket connection to the service.
@@ -975,7 +991,7 @@ class Enochecker:
                             cast(TestCheckerTaskMessage, _task)
                         )
                     else:
-                        return CheckerResultMessage(  # type: ignore
+                        return CheckerResultMessage(
                             result=CheckerTaskResult.INTERNAL_ERROR,
                             message=f"Unsupported method: {task.method}",
                         )

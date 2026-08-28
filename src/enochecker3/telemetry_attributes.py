@@ -1,5 +1,6 @@
 from contextvars import ContextVar
-from typing import Mapping, ClassVar, Any
+from types import TracebackType
+from typing import Any, ClassVar, Mapping, Optional, Type
 
 
 """
@@ -52,7 +53,12 @@ class OpenTelemetryCommonAttributesContext:
             self._stack.set([self._attributes])
         return self
 
-    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         self._stack.set(self._stack.get()[:-1])
 
 

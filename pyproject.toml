@@ -36,7 +36,24 @@ dev = [
 enochecker-core = { git = "https://git.atklab.cloud/atklab/enochecker-core", branch = "main" }
 
 [tool.ruff.lint]
-ignore = ["E731", "E722"]
+ignore = [
+	"E731",
+	"E722",
+	# The library deliberately exposes Any at its edges: ChainDB values, the
+	# runtime injector lookup, and the assert_* helpers are all type-agnostic.
+	"ANN401",
+	# typing.Self is 3.11+; returning the explicit class name is correct here and
+	# not worth a typing_extensions runtime dependency.
+	"PYI034",
+]
+extend-select = ["ANN", "PYI"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
+"example.py" = ["ANN"]
+
+[tool.mypy]
+strict = true
 
 [build-system]
 requires = ["setuptools"]
