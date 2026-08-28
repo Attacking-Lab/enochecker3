@@ -30,6 +30,7 @@ dev = [
 	"pytest>=8.4.1",
 	"pytest-asyncio>=1.1.0",
 	"mypy>=1.17.1",
+	"ty>=0.0.75",
 ]
 
 [tool.uv.sources]
@@ -54,6 +55,16 @@ extend-select = ["ANN", "PYI"]
 
 [tool.mypy]
 strict = true
+
+# ty runs alongside mypy until it reaches 1.0. Each checker owns its own
+# suppression namespace so a `# type: ignore[...]` mypy needs is never reported
+# as unused by ty, and vice versa; ty-only waivers use `# ty: ignore[...]`.
+[tool.ty.rules]
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+
+[tool.ty.analysis]
+respect-type-ignore-comments = false
 
 [build-system]
 requires = ["setuptools"]

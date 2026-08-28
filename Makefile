@@ -3,7 +3,7 @@ UV_RUN ?= env VIRTUAL_ENV=.venv uv run $(UV_FLAGS)
 
 TEST_FLAGS ?=
 
-all: format lint mypy test
+all: format lint mypy ty test
 
 fix: format-fix lint-fix
 
@@ -22,6 +22,9 @@ lint-fix:
 mypy:
 	@$(UV_RUN) mypy src/enochecker3/
 
+ty:
+	@$(UV_RUN) ty check src/enochecker3/
+
 build:
 	@uv build
 
@@ -33,4 +36,4 @@ test:
 sync:
 	@uv sync $(UV_FLAGS)
 
-.PHONY: all fix format format-fix lint lint-fix mypy test build sync
+.PHONY: all fix format format-fix lint lint-fix mypy ty test build sync

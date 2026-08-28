@@ -38,6 +38,10 @@ jobs:
       run: |
         make --trace mypy
 
+    - name: Check typing (ty)
+      run: |
+        make --trace ty
+
     - name: Run tests
       run: |
         mongo_cid=$(docker run -d -p 27017:27017 mongo)

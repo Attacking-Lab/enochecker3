@@ -692,7 +692,7 @@ class Enochecker:
         """
         return ChainDB(self._chain_collection, task.task_chain_id)
 
-    def _get_motor_collection(self, task: CheckerTaskMessage) -> AsyncCollection:  # type: ignore[type-arg]
+    def _get_motor_collection(self, task: CheckerTaskMessage) -> AsyncCollection:  # type: ignore[type-arg]  # ty: ignore[missing-type-argument]
         """
         Provide a MongoDB collection scoped to the current team.
 
@@ -703,7 +703,7 @@ class Enochecker:
         """
         return self._mongodb[f"team_{task.team_id}"]
 
-    def _get_motor_database(self, task: CheckerTaskMessage) -> AsyncDatabase:  # type: ignore[type-arg]
+    def _get_motor_database(self, task: CheckerTaskMessage) -> AsyncDatabase:  # type: ignore[type-arg]  # ty: ignore[missing-type-argument]
         """
         Provide the MongoDB database instance for this checker.
 
@@ -725,7 +725,7 @@ class Enochecker:
         """
         return FlagSearcher(task.flag_regex, task.flag_hash)
 
-    def _get_logger_adapter(self, task: CheckerTaskMessage) -> logging.LoggerAdapter:  # type: ignore[type-arg]
+    def _get_logger_adapter(self, task: CheckerTaskMessage) -> logging.LoggerAdapter:  # type: ignore[type-arg]  # ty: ignore[missing-type-argument]
         """
         Provide a logger with task context automatically included.
 
@@ -747,7 +747,7 @@ class Enochecker:
     async def _get_async_socket(
         self,
         task: CheckerTaskMessage,
-        logger: logging.LoggerAdapter,  # type: ignore[type-arg]
+        logger: logging.LoggerAdapter,  # type: ignore[type-arg]  # ty: ignore[missing-type-argument]
     ) -> AsyncSocket:
         """
         Provide a raw TCP socket connection to the service.

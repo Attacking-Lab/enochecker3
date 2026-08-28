@@ -214,7 +214,7 @@ def instrument_httpx_without_propagation(client: httpx.AsyncClient) -> None:
     """
     from opentelemetry.instrumentation import httpx as httpx_instrumentation
 
-    httpx_instrumentation._inject_propagation_headers = _nop
+    httpx_instrumentation._inject_propagation_headers = _nop  # ty: ignore[invalid-assignment]
     # httpx_instrumentation.inject = _nop
     httpx_instrumentation.HTTPXClientInstrumentor.instrument_client(
         client,
