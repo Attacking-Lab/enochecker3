@@ -1,0 +1,20 @@
+when:
+  - event: tag
+
+steps:
+  - name: build
+    image: python:3.13
+    commands:
+      - apt-get update -y && apt-get install -y make
+      - pip install uv==0.8.5
+      - make --trace build
+
+  - name: publish
+    image: python:3.13
+    environment:
+      TWINE_USERNAME: __token__
+      TWINE_PASSWORD:
+        from_secret: pypi_api_token
+    commands:
+      - pip install twine
+      - twine upload dist/*
