@@ -92,6 +92,26 @@ exploits. Testing tools use it to pair each exploit with the `putflag` variant t
 stored the flag it is supposed to retrieve, instead of trying every combination.
 Every flag store should be covered by at least one exploit.
 
+## Testing
+
+Checker methods that use `ChainDB` or the other MongoDB-backed dependencies
+normally need a MongoDB server. For tests, use the in-memory
+`enochecker3.mock.MockAsyncMongoClient` instead, so you don't need Docker or a
+real server:
+
+```
+pip3 install "enochecker3[testing]"
+```
+
+```python
+from enochecker3 import Enochecker
+from enochecker3.mock import MockAsyncMongoClient
+
+checker = Enochecker("ExampleService", 1337, mongo_client=MockAsyncMongoClient())
+```
+
+See [docs/faq.md](docs/faq.md#do-i-need-mongodb-running) for a full example.
+
 ## Telemetry
 The checker supports OpenTelemetry, with this configuration:
 - Set the environment variable `OTEL_EXPORTER_OTLP_ENDPOINT` to the URL of your OpenTelemetry collector.
