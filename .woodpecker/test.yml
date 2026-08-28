@@ -6,10 +6,20 @@
 # share $HOME with each other), the `sync` step below authenticates just
 # the one `uv sync` invocation that actually touches the git remote,
 # using git-pass-helper's `git-pass` wrapper and a checker_pull_token
-# secret. Woodpecker *does* share the workspace (including the .venv
-# `just sync` builds there) across a pipeline's steps, so every other
-# step below just reuses that already-synced --frozen venv and needs no
-# credentials of its own.
+# secret. Every other step then reuses that venv over the workspace
+# volume and needs no credentials of its own.
+#
+# That reuse only works because UV_PYTHON_INSTALL_DIR and UV_CACHE_DIR
+# below point *into* the workspace volume. Woodpecker shares
+# `workspace.base` (/woodpecker) across a pipeline's steps but nothing
+# else -- each step is a fresh container -- and the image bakes in no
+# Python, so uv downloads the matrix interpreter on demand. Left at its
+# default that download lands in $HOME, outside the volume, and .venv's
+# recorded `home =` then dangles in every later step; uv reacts by
+# silently deleting and re-creating the venv, which re-resolves
+# enochecker-core from the private remote without credentials and fails.
+# Both dirs sit next to the repo checkout (/woodpecker/src/<forge>/...)
+# rather than inside it, so ruff/mypy/ty and `uv build` never walk them.
 #
 # format/lint/mypy/ty/test/build all depend only on `sync`, not on each
 # other, so Woodpecker runs them concurrently via its depends_on DAG
@@ -17,7 +27,9 @@
 # atklab/enochecker-exploit's ci.yaml, adapted to this repo's existing
 # per-Python-version matrix (kept here since testing the full
 # requires-python range matters for a library, unlike enochecker-exploit
-# which dropped its matrix to avoid multiplying image builds).
+# which dropped its matrix to avoid multiplying image builds). Each
+# matrix value is its own workflow with its own workspace volume, so the
+# five interpreters never share a .venv.
 #
 # The image itself (.woodpecker/Dockerfile) doesn't bake in a specific
 # Python version -- it just carries uv, and every step below sets
@@ -32,6 +44,14 @@
 # image-consuming step below sets `pull: true` so a run that *did*
 # rebuild the image picks up the fresh tag instead of a stale cached
 # copy.
+
+variables:
+  - &ci_image oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+  - &uv_env
+    UV_FLAGS: "--exact --no-config --frozen"
+    UV_PYTHON: "${PYTHON_VERSION}"
+    UV_CACHE_DIR: /woodpecker/.uv-cache
+    UV_PYTHON_INSTALL_DIR: /woodpecker/.uv-python
 
 matrix:
   PYTHON_VERSION:
@@ -54,66 +74,56 @@ services:
 
 steps:
   - name: sync
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
     environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+      <<: *uv_env
       CHECKER_PULL_TOKEN:
         from_secret: checker_pull_token
     commands:
       - git-pass -u x -p "$CHECKER_PULL_TOKEN" -U https://git.atklab.cloud -- just -v sync
 
   - name: format
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
-    environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+    environment: *uv_env
     depends_on:
       - name: sync
     commands:
       - just -v format
 
   - name: lint
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
-    environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+    environment: *uv_env
     depends_on:
       - name: sync
     commands:
       - just -v lint
 
   - name: mypy
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
-    environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+    environment: *uv_env
     depends_on:
       - name: sync
     commands:
       - just -v mypy
 
   - name: ty
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
-    environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+    environment: *uv_env
     depends_on:
       - name: sync
     commands:
       - just -v ty
 
   - name: test
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
     environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+      <<: *uv_env
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
     depends_on:
@@ -122,11 +132,9 @@ steps:
       - just -v test
 
   - name: build
-    image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
+    image: *ci_image
     pull: true
-    environment:
-      UV_FLAGS: "--exact --no-config --frozen"
-      UV_PYTHON: "${PYTHON_VERSION}"
+    environment: *uv_env
     depends_on:
       - name: sync
     commands:
