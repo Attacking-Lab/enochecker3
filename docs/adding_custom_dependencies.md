@@ -82,12 +82,9 @@ async def _get_authenticated_client(
     - Have type annotation AsyncClient
     - Have parameter name starting with "authenticated_" (e.g., authenticated_client)
     """
-    # Get credentials stored during putflag
-    try:
-        username = await db.get("username")
-        password = await db.get("password")
-    except KeyError:
-        raise MumbleException("Missing credentials in ChainDB")
+    # Get credentials stored during putflag (raises MumbleException if missing)
+    username = await db.get("username")
+    password = await db.get("password")
 
     # Login to get session token/cookie
     login_response = await client.post("/auth/login", json={
