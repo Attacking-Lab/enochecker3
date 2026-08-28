@@ -60,8 +60,7 @@ steps:
       UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: "${PYTHON_VERSION}"
       CHECKER_PULL_TOKEN:
-        from_secret: CHECKER_PULL_TOKEN
-    secrets: [checker_pull_token]
+        fromSecret: CHECKER_PULL_TOKEN
     commands:
       - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
 
