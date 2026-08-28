@@ -58,6 +58,7 @@ extend-select = ["ANN", "PYI"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
 "example.py" = ["ANN"]
+"example_service.py" = ["ANN"]
 
 [tool.mypy]
 strict = true
