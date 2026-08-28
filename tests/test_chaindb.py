@@ -7,7 +7,7 @@ from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
 
-from enochecker3 import ChainDB
+from enochecker3 import ChainDB, MumbleException
 
 
 @pytest_asyncio.fixture
@@ -55,5 +55,5 @@ async def test_basic(chaindb, val):
 @pytest.mark.asyncio
 @pytest.mark.mongodb
 async def test_missing_key(chaindb):
-    with pytest.raises(KeyError):
+    with pytest.raises(MumbleException):
         await chaindb.get("asd")

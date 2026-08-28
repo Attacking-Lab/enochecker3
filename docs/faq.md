@@ -58,11 +58,8 @@ async def getflag_with_targeting(
     client: AsyncClient,
     db: ChainDB
 ) -> None:
-    try:
-        username = await db.get("username")
-        password = await db.get("password")
-    except KeyError:
-        raise MumbleException("Missing credentials in ChainDB")
+    username = await db.get("username")
+    password = await db.get("password")
 
     await client.post("/login", json={
         "username": username,

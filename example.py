@@ -8,7 +8,6 @@ from enochecker3 import (
     Enochecker,
     FlagSearcher,
     GetflagCheckerTaskMessage,
-    MumbleException,
     PutflagCheckerTaskMessage,
 )
 from enochecker3.utils import assert_equals, assert_in
@@ -34,10 +33,7 @@ async def putflag_test(
 async def getflag_test(
     task: GetflagCheckerTaskMessage, client: AsyncClient, db: ChainDB
 ) -> None:
-    try:
-        token = await db.get("token")
-    except KeyError:
-        raise MumbleException("Missing database entry from putflag")
+    token = await db.get("token")
 
     r = await client.get(f"/note/{token}")
     assert_equals(r.status_code, 200, "getting note with flag failed")
