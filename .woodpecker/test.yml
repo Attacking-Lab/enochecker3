@@ -15,10 +15,35 @@
 # other, so Woodpecker runs them concurrently via its depends_on DAG
 # mode -- same split-into-parallel-steps structure as
 # atklab/enochecker-exploit's ci.yaml, adapted to this repo's existing
-# per-Python-version matrix (kept here since it's cheap: each matrix
-# value already runs off the stock python:${PYTHON_VERSION} image,
-# unlike enochecker-exploit which needed a prebuilt custom image and
-# dropped the matrix to avoid multiplying image builds).
+# per-Python-version matrix (kept here since testing the full
+# requires-python range matters for a library, unlike enochecker-exploit
+# which dropped its matrix to avoid multiplying image builds).
+#
+# `ci-image` builds and pushes .woodpecker/Dockerfile -- one tag per
+# PYTHON_VERSION matrix value, since it bakes in a specific Python base
+# image -- the same thing the justfile's ci-image-build/ci-image-push
+# recipes do by hand. It only runs when .woodpecker/Dockerfile changed
+# (`when.path`, which Woodpecker treats as satisfied for events like
+# `manual` that carry no changed-file list); `sync` depends on it with
+# `optional: true` so sync (and everything chained off it) still runs
+# when the build is skipped, and every image-consuming step sets
+# `pull: true` so a pipeline that *did* rebuild the image picks up the
+# fresh tag instead of a stale cached copy. Mirrors
+# atklab/enochecker-exploit's `ci-image` step, adapted to push one tag
+# per PYTHON_VERSION instead of a single `:latest`.
+#
+# This agent runs steps under the sysbox runtime, which lets a plain,
+# unprivileged `docker:dind` step run its own nested dockerd safely --
+# no `privileged: true` and no "trusted repo" project setting needed.
+# `dockerd-entrypoint.sh` is started in the background by hand, since
+# Woodpecker replaces the image's own entrypoint with the step's
+# `commands:`, then the following commands wait for the daemon socket
+# before touching it.
+#
+# Pushing to oci.atklab.cloud authenticates via oci.atklab.cloud being
+# registered as a registry in this repo's Woodpecker project settings
+# (provisioned out of band, same as atklab/enochecker-exploit's) rather
+# than a secrets-driven `docker login` here.
 
 matrix:
   PYTHON_VERSION:
@@ -36,57 +61,71 @@ services:
     image: mongo
 
 steps:
+  - name: ci-image
+    image: docker:dind
+    commands:
+      - dockerd-entrypoint.sh &
+      - timeout 30 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+      - docker build -f .woodpecker/Dockerfile --build-arg PYTHON_VERSION=${PYTHON_VERSION} -t oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION} .
+      - docker push oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    when:
+      - path: .woodpecker/Dockerfile
+
   - name: sync
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     secrets: [checker_pull_token]
+    depends_on:
+      - name: ci-image
+        optional: true
     commands:
-      - pip install uv==0.8.5 rust-just git-pass-helper==0.2.1
       - git-pass -u x -p "${CHECKER_PULL_TOKEN}" -U https://git.atklab.cloud -- just -v sync
 
   - name: format
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v format
 
   - name: lint
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v lint
 
   - name: mypy
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v mypy
 
   - name: ty
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v ty
 
   - name: test
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
       MONGO_HOST: mongo
@@ -94,16 +133,15 @@ steps:
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v test
 
   - name: build
-    image: python:${PYTHON_VERSION}
+    image: oci.atklab.cloud/enochecker3/enochecker3-ci:${PYTHON_VERSION}
+    pull: true
     environment:
       UV_FLAGS: "--exact --isolated --frozen"
     depends_on:
       - name: sync
     commands:
-      - pip install uv==0.8.5 rust-just
       - just -v build
       - pip install dist/enochecker3-*.tar.gz

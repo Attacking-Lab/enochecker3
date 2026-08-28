@@ -3,6 +3,11 @@ uv_run := "env VIRTUAL_ENV=.venv uv run " + uv_flags
 
 test_flags := env_var_or_default("TEST_FLAGS", "")
 
+# Image built from .woodpecker/Dockerfile for the Woodpecker test.yml pipeline.
+ci_image := env_var_or_default("CI_IMAGE", "oci.atklab.cloud/enochecker3/enochecker3-ci")
+ci_image_tag := env_var_or_default("CI_IMAGE_TAG", "latest")
+ci_image_ref := ci_image + ":" + ci_image_tag
+
 all: format lint mypy ty test
 
 fix: format-fix lint-fix
@@ -36,3 +41,11 @@ test:
 
 sync:
     @uv sync {{ uv_flags }}
+
+# Build the Woodpecker CI runner image
+ci-image-build:
+    docker build -f .woodpecker/Dockerfile -t {{ ci_image_ref }} .
+
+# Build and push the Woodpecker CI runner image
+ci-image-push: ci-image-build
+    docker push {{ ci_image_ref }}
