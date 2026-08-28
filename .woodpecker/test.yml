@@ -20,13 +20,12 @@ steps:
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
     commands:
-      - apt-get update -y && apt-get install -y make
-      - pip install uv==0.8.5
+      - pip install uv==0.8.5 rust-just
       - export UV_FLAGS="--exact --isolated --frozen"
-      - make --trace format
-      - make --trace lint
-      - make --trace mypy
-      - make --trace ty
-      - make --trace test
-      - make --trace build
+      - just -v format
+      - just -v lint
+      - just -v mypy
+      - just -v ty
+      - just -v test
+      - just -v build
       - pip install dist/enochecker3-*.tar.gz
