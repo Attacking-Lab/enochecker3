@@ -57,7 +57,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     secrets: [checker_pull_token]
     commands:
@@ -67,7 +67,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
@@ -78,7 +78,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
@@ -89,7 +89,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
@@ -100,7 +100,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
@@ -111,7 +111,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
       MONGO_HOST: mongo
       TEST_FLAGS: --with_mongodb
@@ -124,7 +124,7 @@ steps:
     image: oci.atklab.cloud/enochecker3/enochecker3-ci:latest
     pull: true
     environment:
-      UV_FLAGS: "--exact --isolated --frozen"
+      UV_FLAGS: "--exact --no-config --frozen"
       UV_PYTHON: ${PYTHON_VERSION}
     depends_on:
       - name: sync
