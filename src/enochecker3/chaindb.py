@@ -4,6 +4,8 @@ from opentelemetry import trace
 from opentelemetry.trace import get_current_span
 from pymongo.asynchronous.collection import AsyncCollection
 
+from .types import MumbleException
+
 
 class ChainDB:
     def __init__(
@@ -25,7 +27,11 @@ class ChainDB:
                 }
             )
             if val is None:
-                raise KeyError(f"Key {key} not found")
+                raise MumbleException(
+                    f"Key {key} not found in ChainDB",
+                    log_message=f"ChainDB.get({key}) found no entry for "
+                    f"task_chain_id {self.task_chain_id}",
+                )
             get_current_span().set_attribute(f"chaindb.value.{key}", val["value"])
             return val["value"]
 

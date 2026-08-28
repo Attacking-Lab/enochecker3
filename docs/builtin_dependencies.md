@@ -27,7 +27,7 @@ async def putflag_web(task: PutflagCheckerTaskMessage, client: AsyncClient) -> s
 
 ### ChainDB (`ChainDB`)
 
-Store private data between putflag and getflag (not accessible to players). Automatically scoped to `task_chain_id` to link related rounds. Data persists across rounds in MongoDB. Throws `KeyError` if key doesn't exist. Use `await db.set(key, value)` and `await db.get(key)`.
+Store private data between putflag and getflag (not accessible to players). Automatically scoped to `task_chain_id` to link related rounds. Data persists across rounds in MongoDB. Raises `MumbleException` if key doesn't exist (e.g. the service lost previously stored state). Use `await db.set(key, value)` and `await db.get(key)`.
 
 **Contrast with attack_info**: ChainDB stores secrets (private), while putflag's return value becomes attack_info (public).
 
@@ -66,12 +66,9 @@ async def getflag_with_retrieval(
     client: AsyncClient,
     db: ChainDB
 ) -> None:
-    # Retrieve credentials from ChainDB
-    try:
-        username = await db.get("username")
-        password = await db.get("password")
-    except KeyError:
-        raise MumbleException("Missing credentials in ChainDB")
+    # Retrieve credentials from ChainDB (raises MumbleException if missing)
+    username = await db.get("username")
+    password = await db.get("password")
 
     # Login and retrieve flag from profile
     login = await client.post("/login", json={
