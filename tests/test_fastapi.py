@@ -13,7 +13,7 @@ from enochecker3 import (
     PutnoiseCheckerTaskMessage,
     TestCheckerTaskMessage,
 )
-from enochecker3.types import CheckerResultMessage
+from enochecker3.types import CheckerResultMessage, CheckerTaskResult
 
 
 @pytest.mark.asyncio
@@ -172,3 +172,43 @@ def test_fastapi_app_property(
     result_model = CheckerResultMessage(**result.json())
     if isinstance(task, PutflagCheckerTaskMessage):
         assert result_model.attack_info == "attack_info"
+
+
+def test_fastapi_app_returns_internal_error_for_method_specific_validation_failure(
+    checker: Enochecker,
+):
+    """A task whose declared method requires a field the request omits must
+    surface as an INTERNAL_ERROR result, not an unhandled 500."""
+
+    @checker.putflag(0)
+    async def putflag_test() -> str:
+        return "attack_info"
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    app = checker.app
+    client = TestClient(app)
+
+    task = PutflagCheckerTaskMessage(
+        task_id=0,
+        address="127.0.0.1",
+        team_id=0,
+        team_name="team_name",
+        current_round_id=0,
+        related_round_id=0,
+        variant_id=0,
+        timeout=15000,
+        round_length=60000,
+        task_chain_id="task_chain_id",
+        flag="test",
+    )
+    payload = task.model_dump()
+    del payload["flag"]
+
+    result = client.post("/", json=payload)
+
+    assert result.status_code == 200
+    result_model = CheckerResultMessage(**result.json())
+    assert result_model.result == CheckerTaskResult.INTERNAL_ERROR
