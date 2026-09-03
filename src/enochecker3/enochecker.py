@@ -806,23 +806,26 @@ class Enochecker:
 
     def _get_random(self, task: CheckerTaskMessage) -> Random:
         """
-        Provide a seeded random number generator for deterministic randomness.
+        Provide a random number generator for the task.
 
         Injectable as: random: Random
 
-        The RNG is seeded with the task_id, ensuring that the same task always generates
-        the same "random" values. This enables reproducible fuzzing/testing: when a
-        checker fails with specific random inputs, you can use the task_id from logs
-        to reproduce the exact same random sequence for debugging.
+        Seeded with task.seed when the engine supplies one, so the same task
+        reproduces the same "random" values -- enabling reproducible fuzzing and
+        replay: when a checker fails with specific random inputs, re-run with the
+        same seed (from the logs) to reproduce the exact sequence for debugging.
+
+        When no seed is supplied, the RNG is seeded from system entropy instead,
+        so its output is not predictable and not reproducible. task_id is NOT used
+        as a fallback: it is a plain correlation id whose predictability engines
+        choose for their own reasons (e.g. EnoEngine), and seeding from it would
+        leak that predictability into anything derived from this RNG.
 
         NOTE: Do NOT use this for exploit methods. Players don't have access to the
         checker's internal random state. Use attack_info (the return value from putflag)
         to provide targeting information to players instead.
-
-        WARNING: In CTF environments, predictable checker behavior based on task_id can
-        be a security risk if attackers can observe and exploit the patterns.
         """
-        return Random(task.task_id)
+        return Random(getattr(task, "seed", None))
 
     def _get_dependency_injector(self, task: CheckerTaskMessage) -> DependencyInjector:
         """

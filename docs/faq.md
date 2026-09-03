@@ -92,9 +92,9 @@ async def exploit_example(
 
 No. `getflag` should retrieve all data from ChainDB. The attack_info is public and intended for exploit methods only. See the [attack_info FAQ](#what-is-attack_info-and-how-does-it-work) above for the correct pattern.
 
-### Why is Random seeded with task_id?
+### Why is Random seeded with task.seed?
 
-For reproducible debugging. When a checker fails with task_id=12345, re-run with the same task_id to replay the exact random sequence.
+For reproducible debugging. When the engine supplies a seed and a checker fails, re-run with the same seed from the logs to replay the exact random sequence.
 
 ```python
 @checker.putnoise(0)
@@ -105,7 +105,9 @@ async def putnoise_fuzz(task: PutnoiseCheckerTaskMessage, client: AsyncClient, r
         await client.get(endpoint)
 ```
 
-**Security consideration:** In environments with predictable task IDs (like EnoEngine), using Random for credentials means attackers could predict them. In environments with random task IDs (like ecsc2025-gameserver), this is less risky. Consider your game engine when choosing between Random and `secrets`.
+`CheckerTaskMessage` has an optional `seed` field, meant as dedicated, engine-controlled entropy for this RNG — separate from `task_id`, which stays a plain correlation id used for logging. `_get_random` seeds with `task.seed` when the engine supplies one. When it doesn't (older `enochecker-core` versions, or an engine that never sets `seed`), the RNG is seeded from system entropy instead: its output is then unpredictable but also not reproducible. `task_id` is deliberately never used as a seed.
+
+**Security consideration:** seeding from `task_id` used to leak its predictability (e.g. under EnoEngine) into anything derived from this RNG. That no longer happens — with a seed the sequence is controlled by the engine, and without one it's truly random. The cost is that a run with no seed can't be replayed. If you need both unpredictability *and* secrecy for credentials, use `secrets` rather than this RNG regardless of the seed.
 
 ### How do I handle HTTP errors?
 
