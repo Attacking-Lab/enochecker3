@@ -30,6 +30,7 @@ from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
 from opentelemetry.trace import StatusCode, get_current_span
+from pydantic import ValidationError
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
@@ -982,11 +983,11 @@ class Enochecker:
                 span = get_current_span()
                 span.update_name(str(task.method))
                 SaarctfTracer.add_span_attributes(span)
-                cls = METHOD_TO_TASK_MESSAGE_MAPPING[task.method]
-                _task = cls(**task.model_dump())
-                logger = self._get_logger_adapter(_task)
-                logger.debug(f"Received new checker task with payload: {_task}")
                 try:
+                    cls = METHOD_TO_TASK_MESSAGE_MAPPING[task.method]
+                    _task = cls(**task.model_dump())
+                    logger = self._get_logger_adapter(_task)
+                    logger.debug(f"Received new checker task with payload: {_task}")
                     if task.method == CheckerMethod.PUTFLAG:
                         return await self._call_putflag(
                             cast(PutflagCheckerTaskMessage, _task)
@@ -1059,6 +1060,18 @@ class Enochecker:
                     logger.info(f"Encountered internal error exception:\n{trace}")
                     return CheckerResultMessage(
                         result=CheckerTaskResult.INTERNAL_ERROR, message=e.message
+                    )
+                except ValidationError as e:
+                    span.record_exception(e)
+                    span.set_status(StatusCode.ERROR)
+                    span.set_attribute("enochecker.result", "INTERNAL_ERROR")
+                    logger = self._get_logger_adapter(task)
+                    logger.info(
+                        f"Task failed re-validation against {task.method} schema:\n{e}"
+                    )
+                    return CheckerResultMessage(
+                        result=CheckerTaskResult.INTERNAL_ERROR,
+                        message=f"Malformed task for method {task.method}",
                     )
 
         FastAPIInstrumentor().instrument_app(app)
