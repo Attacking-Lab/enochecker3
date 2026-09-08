@@ -289,7 +289,7 @@ wheels = [
 [[package]]
 name = "enochecker-core"
 version = "0.14.0"
-source = { git = "https://git.atklab.cloud/atklab/enochecker-core?branch=main#1e524b6c214ae5bbc126a24d4be62e16acb8a42e" }
+source = { git = "https://git.atklab.cloud/atklab/enochecker-core?branch=main#587ad03b933f92c0c4b3ee76dc16030a44a69e86" }
 dependencies = [
     { name = "pydantic" },
 ]
