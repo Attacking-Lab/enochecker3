@@ -986,10 +986,10 @@ class Enochecker:
                 span = get_current_span()
                 span.update_name(str(task.method))
                 SaarctfTracer.add_span_attributes(span)
+                logger = self._get_logger_adapter(task)
                 try:
                     cls = METHOD_TO_TASK_MESSAGE_MAPPING[task.method]
                     _task = cls(**task.model_dump())
-                    logger = self._get_logger_adapter(_task)
                     logger.debug(f"Received new checker task with payload: {_task}")
                     if task.method == CheckerMethod.PUTFLAG:
                         return await self._call_putflag(
@@ -1068,7 +1068,6 @@ class Enochecker:
                     span.record_exception(e)
                     span.set_status(StatusCode.ERROR)
                     span.set_attribute("enochecker.result", "INTERNAL_ERROR")
-                    logger = self._get_logger_adapter(task)
                     logger.info(
                         f"Task failed re-validation against {task.method} schema:\n{e}"
                     )
