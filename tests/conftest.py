@@ -17,6 +17,9 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "mongodb: mark test as requiring MongoDB")
+    config.addinivalue_line(
+        "markers", "e2e: mark test as an end-to-end checker/service round trip"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

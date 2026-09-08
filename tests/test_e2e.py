@@ -28,6 +28,8 @@ from example import build_checker
 from example_service import app as note_service_app
 from example_service import notes as note_service_notes
 
+pytestmark = pytest.mark.e2e
+
 FLAG = "ENOabcdefgh="
 FLAG_REGEX = r"ENO.{8}="
 FLAG_HASH = hashlib.sha256(FLAG.encode()).hexdigest()
@@ -75,7 +77,7 @@ def note_service_port() -> Iterator[int]:
     note_service_notes.clear()
 
 
-def test_example_checker_against_example_service_e2e(note_service_port: int):
+def test_example_checker_against_example_service(note_service_port: int):
     checker = build_checker(
         mongo_client=MockAsyncMongoClient(), service_port=note_service_port
     )
@@ -107,7 +109,7 @@ def test_example_checker_against_example_service_e2e(note_service_port: int):
         assert exploit_result["flag"] == FLAG
 
 
-def test_example_checker_getflag_fails_without_prior_putflag_e2e(
+def test_example_checker_getflag_fails_without_prior_putflag(
     note_service_port: int,
 ):
     checker = build_checker(
