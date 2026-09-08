@@ -20,7 +20,7 @@ dependencies = [
 	"opentelemetry-instrumentation-pymongo>=0.60b1",
     "opentelemetry-sdk>=1.39.1",
 	"uvicorn>=0.40.0,<0.41.0",
-	"enochecker-core"
+	"enochecker-core~=0.16.0"
 ]
 
 [project.optional-dependencies]
@@ -40,7 +40,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-enochecker-core = { git = "https://git.atklab.cloud/atklab/enochecker-core", tag = "v0.16.0" }
+enochecker-core = { git = "https://git.atklab.cloud/atklab/enochecker-core", branch = "main" }
 
 [tool.ruff.lint]
 ignore = [
