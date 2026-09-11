@@ -48,7 +48,7 @@ def _setup_logging(resource: Resource, log_exporter: LogRecordExporter) -> None:
 
 
 def _setup_tracing(resource: Resource, span_exporter: SpanExporter) -> None:
-    provider = SaarctfTracerProvider(sampler=ALWAYS_ON, resource=resource)
+    provider = CommonAttributesTracerProvider(sampler=ALWAYS_ON, resource=resource)
     if os.environ.get("OTEL_EXPORTER_DISABLE_BATCH", default=False):
         processor: SpanProcessor = SimpleSpanProcessor(span_exporter)
     else:
@@ -99,7 +99,7 @@ class DropOtelErrorsLogFilter(logging.Filter):
         return not record.name.startswith("opentelemetry")
 
 
-class SaarctfTracer(Tracer):
+class CommonAttributesTracer(Tracer):
     """Wrap tracers to add common attributes to spans"""
 
     def __init__(self, tracer: Tracer) -> None:
@@ -168,7 +168,7 @@ class SaarctfTracer(Tracer):
             yield self.add_span_attributes(span)
 
 
-class SaarctfTracerProvider(TracerProvider):
+class CommonAttributesTracerProvider(TracerProvider):
     """Wrap tracer providers to add common attributes to spans"""
 
     def get_tracer(
@@ -178,7 +178,7 @@ class SaarctfTracerProvider(TracerProvider):
         schema_url: Optional[str] = None,
         attributes: Optional[types.Attributes] = None,
     ) -> Tracer:
-        return SaarctfTracer(
+        return CommonAttributesTracer(
             super().get_tracer(
                 instrumenting_module_name,
                 instrumenting_library_version,

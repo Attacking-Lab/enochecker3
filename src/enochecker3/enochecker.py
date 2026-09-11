@@ -37,7 +37,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from enochecker3.telemetry import (
     CommonAttributesLogFilter,
-    SaarctfTracer,
+    CommonAttributesTracer,
     instrument_httpx_without_propagation,
     setup_telemetry,
 )
@@ -985,7 +985,7 @@ class Enochecker:
             with telemetry_attributes(attributes):
                 span = get_current_span()
                 span.update_name(str(task.method))
-                SaarctfTracer.add_span_attributes(span)
+                CommonAttributesTracer.add_span_attributes(span)
                 logger = self._get_logger_adapter(task)
                 try:
                     cls = METHOD_TO_TASK_MESSAGE_MAPPING[task.method]
