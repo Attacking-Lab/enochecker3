@@ -4,7 +4,7 @@ Enochecker3 uses dependency injection to provide common resources to your checke
 
 ### HTTP Client (`httpx.AsyncClient`)
 
-Make HTTP requests to the service being checked. Pre-configured with `base_url=http://{task.address}:{service_port}` and SSL verification disabled (suitable for CTF environments).
+Make HTTP requests to the service being checked. Pre-configured with `base_url=http://{task.address}:{service_port}` and SSL verification disabled (suitable for CTF environments). Every TCP connection its pool opens is recorded in `metadata["flows"]` (see Result Metadata below).
 
 **Usage**:
 ```python
@@ -223,7 +223,7 @@ async def putflag_with_random(
 
 ### TCP Socket (`AsyncSocket`)
 
-Binary protocols, custom network protocols, raw TCP. Returns `(StreamReader, StreamWriter)` tuple. Automatically connects to `task.address:service_port`. Connection closes automatically after method completes. Raises `OfflineException` if connection fails.
+Binary protocols, custom network protocols, raw TCP. Returns `(StreamReader, StreamWriter)` tuple. Automatically connects to `task.address:service_port`. Connection closes automatically after method completes, and is recorded in `metadata["flows"]` (see Result Metadata below). Raises `OfflineException` if connection fails.
 
 **Usage**:
 ```python
@@ -313,6 +313,8 @@ async def havoc_conditional(
 ### Result Metadata (`TaskMetadata`)
 
 A mutable, per-task `dict` for attaching arbitrary, checker-defined data to the result. Available in every checker method. Whatever you store is returned to the engine under the result message's `metadata` key; values must be JSON-serializable. When left untouched it is omitted from the wire (`metadata` stays `null`). Unlike `attack_info` (public, for players) and `ChainDB` (private, for the checker), metadata is out-of-band bookkeeping for whoever consumes results — it does not affect the checker verdict.
+
+**Automatic `flows` key**: the connection-opening dependencies (`httpx.AsyncClient` and `AsyncSocket`) record every TCP connection they open under `metadata["flows"]`, so it is present whenever a checker touched the service over one of them. Each entry is `{"protocol", "src_ip", "src_port", "dst_ip", "dst_port", "start", "end"}`, where `start`/`end` are Unix timestamps (seconds) at connection open/close. Use it to correlate checker traffic with packet captures. You can append your own keys alongside it.
 
 **Usage**:
 ```python

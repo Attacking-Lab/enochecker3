@@ -3,6 +3,7 @@ import contextlib
 import logging
 import os
 import sys
+import time
 import traceback
 from contextlib import AsyncExitStack
 from inspect import Parameter, isawaitable, signature
@@ -45,6 +46,7 @@ from enochecker3.telemetry_attributes import telemetry_attributes
 from enochecker3.utils import FlagSearcher
 
 from .chaindb import ChainDB
+from .flows import close_flow, record_flow, record_http_flows
 from .types import (
     CheckerInfoMessage,
     CheckerMethod,
@@ -744,7 +746,9 @@ class Enochecker:
     # produces a key that no longer equals the bare class every caller writes, and
     # resolution fails at runtime. Hence the type-arg suppressions below.
 
-    def _get_http_client(self, task: CheckerTaskMessage) -> httpx.AsyncClient:
+    def _get_http_client(
+        self, task: CheckerTaskMessage, metadata: TaskMetadata
+    ) -> httpx.AsyncClient:
         """
         Provide an HTTP client configured for the service being checked.
 
@@ -753,11 +757,15 @@ class Enochecker:
         The client is configured with:
         - Base URL pointing to the service (task.address:service_port)
         - SSL verification disabled (for CTF/testing environments)
+
+        Every TCP connection the client's pool opens is recorded in
+        metadata["flows"] (5-tuple plus open/close timestamps).
         """
         client = httpx.AsyncClient(
             base_url=f"http://{task.address}:{self.service_port}", verify=False
         )
         instrument_httpx_without_propagation(client)
+        record_http_flows(client, metadata)
         return client
 
     def _get_chaindb(self, task: CheckerTaskMessage) -> ChainDB:
@@ -827,6 +835,7 @@ class Enochecker:
         self,
         task: CheckerTaskMessage,
         logger: logging.LoggerAdapter,  # type: ignore[type-arg]  # ty: ignore[missing-type-argument]
+        metadata: TaskMetadata,
     ) -> AsyncSocket:
         """
         Provide a raw TCP socket connection to the service.
@@ -836,12 +845,16 @@ class Enochecker:
         Returns a tuple of (StreamReader, StreamWriter) for low-level protocol interaction.
         The connection is automatically closed when the checker method completes.
 
+        The connection is recorded in metadata["flows"] (5-tuple plus open/close
+        timestamps).
+
         Example:
             async def my_checker(socket: AsyncSocket):
                 reader, writer = socket
                 writer.write(b"HELLO\\n")
                 response = await reader.readline()
         """
+        start = time.time()
         try:
             conn = await asyncio.streams.open_connection(
                 task.address, self.service_port
@@ -850,12 +863,20 @@ class Enochecker:
             trace = traceback.format_exc()
             logger.info(f"Failed to connect to service\n{trace}")
             raise OfflineException("Could not establish socket connection to service")
+        flow = record_flow(
+            metadata,
+            "tcp",
+            conn[1].get_extra_info("sockname"),
+            conn[1].get_extra_info("peername"),
+            start,
+        )
         try:
             yield conn
         finally:
             # Ensure the socket is properly closed even if the checker crashes
             conn[1].close()
             await conn[1].wait_closed()
+            close_flow(flow)
 
     def _get_random(self, task: CheckerTaskMessage) -> Random:
         """
