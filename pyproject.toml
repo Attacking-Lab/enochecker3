@@ -1,6 +1,6 @@
 [project]
 name = "enochecker3"
-version = "0.16.0"
+version = "0.17.0"
 authors = [
 	{ name = "Louis Burda", email = "dev@sinitax.com" },
 	{ name = "Lucas Druschke", email = "ldruschk@posteo.de" }
@@ -20,7 +20,7 @@ dependencies = [
 	"opentelemetry-instrumentation-pymongo>=0.60b1",
     "opentelemetry-sdk>=1.39.1",
 	"uvicorn>=0.40.0,<0.41.0",
-	"enochecker-core~=0.16.0"
+	"enochecker-core~=0.17.0"
 ]
 
 [project.optional-dependencies]
