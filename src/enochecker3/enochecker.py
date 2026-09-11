@@ -507,8 +507,6 @@ class Enochecker:
     ) -> Tuple[Optional[str | bytes], TaskMetadata]:
         variant_id = task.variant_id
         method = task.method
-        print(task)
-        print(self._method_variants)
         try:
             f = self._method_variants[method][variant_id]
         except KeyError:
@@ -1033,12 +1031,10 @@ class Enochecker:
 
         @app.get("/service", response_model=CheckerInfoMessage)
         def service() -> CheckerInfoMessage:
-            print(service_info)
             return service_info
 
         @app.post("/", response_model=CheckerResultMessage)
         async def checker(task: CheckerTaskMessage) -> CheckerResultMessage:
-            print(task.model_dump_json())
             attributes = {
                 "enochecker.task.task_id": task.task_id,
                 "enochecker.task.method": str(task.method),
