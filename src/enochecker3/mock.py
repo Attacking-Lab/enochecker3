@@ -57,6 +57,15 @@ class _AsyncCursor:
         return wrapper
 
 
+# Unlike the rest of pymongo's async CRUD surface (find_one, replace_one, ...),
+# AsyncCollection.find()/find_raw_batches() are themselves synchronous: they
+# return an AsyncCursor directly, without being awaited, and the cursor is
+# then iterated with `async for`. Wrapping them like every other method below
+# would make `collection.find(...)` return an unawaited coroutine instead of
+# a cursor, breaking idiomatic `async for doc in collection.find(...)` code.
+_SYNC_CURSOR_METHODS = frozenset({"find", "find_raw_batches"})
+
+
 class _AsyncProxy:
     """Wraps a synchronous mongomock object behind an async-compatible API."""
 
@@ -77,9 +86,7 @@ class _AsyncProxy:
         if not callable(attr):
             return attr
 
-        @functools.wraps(attr)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            result = attr(*args, **kwargs)
+        def _wrap_result(result: Any) -> Any:
             if isinstance(result, mongomock.collection.Cursor):
                 return _AsyncCursor(result)
             if isinstance(
@@ -88,6 +95,18 @@ class _AsyncProxy:
             ):
                 return _AsyncProxy(result)
             return result
+
+        if name in _SYNC_CURSOR_METHODS:
+
+            @functools.wraps(attr)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                return _wrap_result(attr(*args, **kwargs))
+
+            return sync_wrapper
+
+        @functools.wraps(attr)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return _wrap_result(attr(*args, **kwargs))
 
         return wrapper
 
