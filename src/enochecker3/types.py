@@ -7,7 +7,7 @@ __all__ = [
     "EnoLogMessage",
 ]
 
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from enochecker_core import (
     CheckerInfoMessage,
@@ -17,6 +17,16 @@ from enochecker_core import (
     CheckerTaskResult,
     EnoLogMessage,
 )
+
+
+class TaskMetadata(Dict[str, Any]):
+    """Mutable per-task metadata bag.
+
+    Declare a `metadata: TaskMetadata` parameter on any checker method and
+    populate it during the run; whatever it contains is returned to the engine
+    under the result message's ``metadata`` key (dropped from the wire when
+    left empty). Values must be JSON-serializable.
+    """
 
 
 class PutflagCheckerTaskMessage(CheckerTaskMessage):

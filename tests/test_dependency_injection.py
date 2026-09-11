@@ -10,6 +10,7 @@ from enochecker3 import (
     Enochecker,
     HavocCheckerTaskMessage,
     InternalErrorException,
+    TaskMetadata,
 )
 from enochecker3.chaindb import ChainDB
 from enochecker3.enochecker import CircularDependencyException
@@ -135,6 +136,49 @@ async def test_dependency_injector_no_context_manager(
         await injector.get(str)
 
     await checker._call_havoc(havoc_task)
+
+
+@pytest.mark.asyncio
+async def test_metadata_parameter_reaches_result(
+    checker: Enochecker, havoc_task: HavocCheckerTaskMessage
+):
+    @checker.havoc(0)
+    async def havoc(metadata: TaskMetadata):
+        metadata["attempts"] = 2
+        metadata["note"] = "ok"
+
+    result = await checker._call_havoc(havoc_task)
+
+    assert result.metadata == {"attempts": 2, "note": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_metadata_absent_when_untouched(
+    checker: Enochecker, havoc_task: HavocCheckerTaskMessage
+):
+    @checker.havoc(0)
+    async def havoc(metadata: TaskMetadata):
+        pass
+
+    result = await checker._call_havoc(havoc_task)
+
+    assert result.metadata is None
+
+
+@pytest.mark.asyncio
+async def test_metadata_shared_via_runtime_injector(
+    checker: Enochecker, havoc_task: HavocCheckerTaskMessage
+):
+    @checker.havoc(0)
+    async def havoc(metadata: TaskMetadata, injector: DependencyInjector):
+        metadata["from_param"] = 1
+        runtime = await injector.get(TaskMetadata)
+        runtime["from_injector"] = 2
+        assert runtime is metadata
+
+    result = await checker._call_havoc(havoc_task)
+
+    assert result.metadata == {"from_param": 1, "from_injector": 2}
 
 
 @pytest.mark.asyncio

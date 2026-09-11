@@ -309,3 +309,25 @@ async def havoc_conditional(
     client = await injector.get(AsyncClient)
     await client.get("/health")
 ```
+
+### Result Metadata (`TaskMetadata`)
+
+A mutable, per-task `dict` for attaching arbitrary, checker-defined data to the result. Available in every checker method. Whatever you store is returned to the engine under the result message's `metadata` key; values must be JSON-serializable. When left untouched it is omitted from the wire (`metadata` stays `null`). Unlike `attack_info` (public, for players) and `ChainDB` (private, for the checker), metadata is out-of-band bookkeeping for whoever consumes results — it does not affect the checker verdict.
+
+**Usage**:
+```python
+from enochecker3 import TaskMetadata
+
+@checker.putflag(0)
+async def putflag_with_metadata(
+    task: PutflagCheckerTaskMessage,
+    client: AsyncClient,
+    metadata: TaskMetadata,
+) -> str:
+    response = await client.post("/api/create", json={"content": task.flag})
+    metadata["upstream_status"] = response.status_code
+    metadata["doc_id"] = response.json()["id"]
+    return response.json()["id"]
+```
+
+The same bag is shared with dependencies resolved at runtime, so `await injector.get(TaskMetadata)` returns the identical object.

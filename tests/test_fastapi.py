@@ -11,6 +11,7 @@ from enochecker3 import (
     GetnoiseCheckerTaskMessage,
     PutflagCheckerTaskMessage,
     PutnoiseCheckerTaskMessage,
+    TaskMetadata,
     TestCheckerTaskMessage,
 )
 from enochecker3.types import CheckerResultMessage, CheckerTaskResult
@@ -212,3 +213,43 @@ def test_fastapi_app_returns_internal_error_for_method_specific_validation_failu
     assert result.status_code == 200
     result_model = CheckerResultMessage(**result.json())
     assert result_model.result == CheckerTaskResult.INTERNAL_ERROR
+
+
+def test_fastapi_app_returns_metadata_under_camel_key(checker: Enochecker):
+    """Metadata a handler writes is serialized back under the `metadata` key."""
+
+    @checker.putflag(0)
+    async def putflag_test(metadata: TaskMetadata) -> str:
+        metadata["attempts"] = 3
+        metadata["nested"] = {"k": [1, 2]}
+        return "attack_info"
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    client = TestClient(checker.app)
+
+    task = PutflagCheckerTaskMessage(
+        task_id=0,
+        address="127.0.0.1",
+        team_id=0,
+        team_name="team_name",
+        current_round_id=0,
+        related_round_id=0,
+        variant_id=0,
+        timeout=15000,
+        round_length=60000,
+        task_chain_id="task_chain_id",
+        flag="test",
+    )
+
+    result = client.post("/", json=task.model_dump())
+    result.raise_for_status()
+    body = result.json()
+
+    assert body["metadata"] == {"attempts": 3, "nested": {"k": [1, 2]}}
+    assert CheckerResultMessage(**body).metadata == {
+        "attempts": 3,
+        "nested": {"k": [1, 2]},
+    }

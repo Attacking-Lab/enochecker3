@@ -18,6 +18,7 @@ from .types import (
     OfflineException,
     PutflagCheckerTaskMessage,
     PutnoiseCheckerTaskMessage,
+    TaskMetadata,
     TestCheckerTaskMessage,
 )
 from .utils import FlagSearcher
@@ -40,6 +41,7 @@ __all__ = [
     "OfflineException",
     "PutflagCheckerTaskMessage",
     "PutnoiseCheckerTaskMessage",
+    "TaskMetadata",
     "TestCheckerTaskMessage",
     "FlagSearcher",
 ]

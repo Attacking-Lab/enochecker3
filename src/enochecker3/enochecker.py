@@ -60,6 +60,7 @@ from .types import (
     OfflineException,
     PutflagCheckerTaskMessage,
     PutnoiseCheckerTaskMessage,
+    TaskMetadata,
     TestCheckerTaskMessage,
 )
 
@@ -105,9 +106,20 @@ class DependencyInjector:
                 http_client = await injector.get(httpx.AsyncClient)
     """
 
-    def __init__(self, checker: "Enochecker", task: CheckerTaskMessage) -> None:
+    def __init__(
+        self,
+        checker: "Enochecker",
+        task: CheckerTaskMessage,
+        metadata: Optional[TaskMetadata] = None,
+    ) -> None:
         self.checker = checker
         self.task = task
+        # Shared per-task metadata bag, so runtime-resolved dependencies (and the
+        # method itself via injector.get) write into the same object the result
+        # message is built from.
+        self.metadata: TaskMetadata = (
+            metadata if metadata is not None else TaskMetadata()
+        )
         # AsyncExitStack manages cleanup of async context managers (like sockets, clients)
         self._exit_stack: AsyncExitStack = AsyncExitStack()
 
@@ -136,11 +148,15 @@ class DependencyInjector:
         Returns:
             The requested dependency instance
         """
+        # Directly hand back the shared metadata bag, mirroring how it is
+        # injected as a method parameter.
+        if isinstance(t, type) and issubclass(t, TaskMetadata):
+            return self.metadata
         # Find the registered injector function for this type
         injector = self.checker.resolve_injector(name, t)
         # Recursively inject dependencies needed by the injector itself
         args = await self.checker._inject_dependencies(
-            self.task, injector, self._exit_stack
+            self.task, injector, self._exit_stack, metadata=self.metadata
         )
         # Call the injector with its dependencies
         res = injector(*args)
@@ -386,6 +402,7 @@ class Enochecker:
         f: Callable[..., Any],
         stack: AsyncExitStack,
         dependencies: Optional[Set[Callable[..., Any]]] = None,
+        metadata: Optional[TaskMetadata] = None,
     ) -> List[Any]:
         """
         Recursively inject dependencies for a function based on its parameter type annotations.
@@ -415,6 +432,8 @@ class Enochecker:
             CircularDependencyException: If a circular dependency is detected
         """
         dependencies = dependencies or set()
+        if metadata is None:
+            metadata = TaskMetadata()
 
         sig = signature(f)
         # Get the specific task message type for this method (e.g., PutflagCheckerTaskMessage)
@@ -434,6 +453,13 @@ class Enochecker:
                 # Subscripted generics (e.g., Tuple[...]) can't be used in issubclass
                 pass
 
+            # This parameter wants the shared metadata bag - inject it directly
+            if isinstance(v.annotation, type) and issubclass(
+                v.annotation, TaskMetadata
+            ):
+                args.append(metadata)
+                continue
+
             # This parameter wants a dependency - resolve and inject it
             injector = self.resolve_injector(v.name, v.annotation)
 
@@ -447,12 +473,16 @@ class Enochecker:
             # Recursively inject dependencies for the injector itself
             # (e.g., _get_async_socket needs a logger, which needs a task)
             args_ = await self._inject_dependencies(
-                task, injector, stack, dependencies.union([injector])
+                task, injector, stack, dependencies.union([injector]), metadata
             )
             # Call the injector with its dependencies to get the actual dependency instance
             arg = injector(*args_)
             if isawaitable(arg):
                 arg = await arg
+            # A DependencyInjector must share this task's metadata bag so its
+            # runtime injector.get resolves the same object.
+            if isinstance(arg, DependencyInjector):
+                arg.metadata = metadata
             args.append(arg)
 
         # Handle (async) context managers: enter them and let the exit stack manage cleanup
@@ -470,7 +500,9 @@ class Enochecker:
 
         return new_args
 
-    async def _call_method_raw(self, task: CheckerTaskMessage) -> Optional[str | bytes]:
+    async def _call_method_raw(
+        self, task: CheckerTaskMessage
+    ) -> Tuple[Optional[str | bytes], TaskMetadata]:
         variant_id = task.variant_id
         method = task.method
         print(task)
@@ -482,8 +514,9 @@ class Enochecker:
                 f"Variant_id {variant_id} not defined for method {method}"
             )
 
+        metadata = TaskMetadata()
         async with AsyncExitStack() as stack:
-            args = await self._inject_dependencies(task, f, stack)
+            args = await self._inject_dependencies(task, f, stack, metadata=metadata)
             res = await f(*args)
 
         if res is not None and not isinstance(res, str) and not isinstance(res, bytes):
@@ -491,20 +524,22 @@ class Enochecker:
                 f"{task.method} method returned non-string object"
             )
 
-        return res
+        return res, metadata
 
-    async def _call_method(self, task: CheckerTaskMessage) -> Optional[str | bytes]:
+    async def _call_method(
+        self, task: CheckerTaskMessage
+    ) -> Tuple[Optional[str | bytes], TaskMetadata]:
         try:
             timeout = (task.timeout / 1000) - TIMEOUT_BUFFER
             get_current_span().set_attribute(
                 "enochecker.internal_timeout_ms", timeout * 1000
             )
-            res = await asyncio.wait_for(
+            res, metadata = await asyncio.wait_for(
                 self._call_method_raw(task),
                 timeout=timeout,
             )
             get_current_span().set_attribute("enochecker.status", "OK")
-            return res
+            return res, metadata
         except (MumbleException, OfflineException, InternalErrorException):
             raise
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
@@ -547,54 +582,72 @@ class Enochecker:
     async def _call_putflag(
         self, task: PutflagCheckerTaskMessage
     ) -> CheckerResultMessage:
-        attack_info: Optional[str | bytes] = await self._call_method(task)
+        attack_info: Optional[str | bytes]
+        attack_info, metadata = await self._call_method(task)
         if isinstance(attack_info, bytes):
             attack_info = attack_info.decode()
         get_current_span().set_attribute(
             "enochecker.result.attack_info", attack_info if attack_info else "None"
         )
         return CheckerResultMessage(
-            result=CheckerTaskResult.OK, attack_info=attack_info
+            result=CheckerTaskResult.OK,
+            attack_info=attack_info,
+            metadata=metadata or None,
         )
 
     async def _call_getflag(
         self, task: GetflagCheckerTaskMessage
     ) -> CheckerResultMessage:
-        await self._call_method(task)
-        return CheckerResultMessage(result=CheckerTaskResult.OK)
+        _, metadata = await self._call_method(task)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, metadata=metadata or None
+        )
 
     async def _call_putnoise(
         self, task: PutnoiseCheckerTaskMessage
     ) -> CheckerResultMessage:
-        await self._call_method(task)
-        return CheckerResultMessage(result=CheckerTaskResult.OK)
+        _, metadata = await self._call_method(task)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, metadata=metadata or None
+        )
 
     async def _call_getnoise(
         self, task: GetnoiseCheckerTaskMessage
     ) -> CheckerResultMessage:
-        await self._call_method(task)
-        return CheckerResultMessage(result=CheckerTaskResult.OK)
+        _, metadata = await self._call_method(task)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, metadata=metadata or None
+        )
 
     async def _call_havoc(self, task: HavocCheckerTaskMessage) -> CheckerResultMessage:
-        await self._call_method(task)
-        return CheckerResultMessage(result=CheckerTaskResult.OK)
+        _, metadata = await self._call_method(task)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, metadata=metadata or None
+        )
 
     async def _call_exploit(
         self, task: ExploitCheckerTaskMessage
     ) -> CheckerResultMessage:
-        flag_text: str | bytes | None = await self._call_method(task)
+        flag_text: str | bytes | None
+        flag_text, metadata = await self._call_method(task)
         flag_searcher = self._get_flag_searcher(task)
         flag_bytes: bytes | None = flag_searcher.search_flag(flag_text or "")
         if flag_bytes is None:
             return CheckerResultMessage(
-                result=CheckerTaskResult.MUMBLE, message="No flags found"
+                result=CheckerTaskResult.MUMBLE,
+                message="No flags found",
+                metadata=metadata or None,
             )
         flag_text = flag_bytes.decode(errors="replace")
-        return CheckerResultMessage(result=CheckerTaskResult.OK, flag=flag_text)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, flag=flag_text, metadata=metadata or None
+        )
 
     async def _call_test(self, task: TestCheckerTaskMessage) -> CheckerResultMessage:
-        await self._call_method(task)
-        return CheckerResultMessage(result=CheckerTaskResult.OK)
+        _, metadata = await self._call_method(task)
+        return CheckerResultMessage(
+            result=CheckerTaskResult.OK, metadata=metadata or None
+        )
 
     ########################
     # Dependency Injection #
