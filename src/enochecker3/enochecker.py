@@ -533,8 +533,8 @@ class Enochecker:
         return new_args
 
     async def _call_method_raw(
-        self, task: CheckerTaskMessage
-    ) -> Tuple[Optional[str | bytes], TaskMetadata]:
+        self, task: CheckerTaskMessage, metadata: TaskMetadata
+    ) -> Optional[str | bytes]:
         variant_id = task.variant_id
         method = task.method
         try:
@@ -544,7 +544,6 @@ class Enochecker:
                 f"Variant_id {variant_id} not defined for method {method}"
             )
 
-        metadata = TaskMetadata()
         async with AsyncExitStack() as stack:
             args = await self._inject_dependencies(task, f, stack, metadata=metadata)
             res = await f(*args)
@@ -554,60 +553,78 @@ class Enochecker:
                 f"{task.method} method returned non-string object"
             )
 
-        return res, metadata
+        return res
 
     async def _call_method(
         self, task: CheckerTaskMessage
     ) -> Tuple[Optional[str | bytes], TaskMetadata]:
+        # Created up-front (rather than inside _call_method_raw) so that
+        # whatever it accumulated -- e.g. recorded flows -- survives to be
+        # attached to the exceptions below when a checker method fails
+        # partway through, instead of being discarded with the stack frame.
+        metadata = TaskMetadata()
         try:
             timeout = (task.timeout / 1000) - TIMEOUT_BUFFER
             get_current_span().set_attribute(
                 "enochecker.internal_timeout_ms", timeout * 1000
             )
-            res, metadata = await asyncio.wait_for(
-                self._call_method_raw(task),
+            res = await asyncio.wait_for(
+                self._call_method_raw(task, metadata),
                 timeout=timeout,
             )
             get_current_span().set_attribute("enochecker.status", "OK")
             return res, metadata
-        except (MumbleException, OfflineException, InternalErrorException):
+        except (MumbleException, OfflineException, InternalErrorException) as e:
+            e.metadata = metadata
             raise
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.info(f"Connection to service failed\n{trace}")
-            raise OfflineException("Connection to service failed")
+            offline_exc = OfflineException("Connection to service failed")
+            offline_exc.metadata = metadata
+            raise offline_exc
         except (EOFError, httpx.ReadError, httpx.WriteError) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.error(f"Connection to service closed abruptly\n{trace}")
-            raise MumbleException("Closed to service closed abruptly")
+            mumble_exc = MumbleException("Closed to service closed abruptly")
+            mumble_exc.metadata = metadata
+            raise mumble_exc
         except (TimeoutError, httpx.TimeoutException) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.error(f"Service responding too slow\n{trace}")
-            raise MumbleException("Service responding too slow")
+            mumble_exc = MumbleException("Service responding too slow")
+            mumble_exc.metadata = metadata
+            raise mumble_exc
         except (ConnectionResetError, httpx.CloseError) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.error(f"Connection reset by service\n{trace}")
-            raise MumbleException("Connection reset by services")
+            mumble_exc = MumbleException("Connection reset by services")
+            mumble_exc.metadata = metadata
+            raise mumble_exc
         except (httpx.RemoteProtocolError, httpx.DecodingError) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.info(f"HTTP connection to service failed\n{trace}")
-            raise OfflineException("HTTP connection to service failed")
+            offline_exc = OfflineException("HTTP connection to service failed")
+            offline_exc.metadata = metadata
+            raise offline_exc
         except Exception as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
             logger.info(f"Checker internal error\n{trace}")
-            raise InternalErrorException("Checker internal error", inner=e)
+            internal_exc = InternalErrorException("Checker internal error", inner=e)
+            internal_exc.metadata = metadata
+            raise internal_exc
 
     async def _call_putflag(
         self, task: PutflagCheckerTaskMessage
@@ -1173,7 +1190,9 @@ class Enochecker:
                         logger.info(e.log_message)
                     logger.info(f"Encountered mumble exception:\n{trace}")
                     return CheckerResultMessage(
-                        result=CheckerTaskResult.MUMBLE, message=e.message
+                        result=CheckerTaskResult.MUMBLE,
+                        message=e.message,
+                        metadata=e.metadata or None,
                     )
                 except OfflineException as e:
                     span.record_exception(e)
@@ -1186,7 +1205,9 @@ class Enochecker:
                         logger.info(e.log_message)
                     logger.info(f"Encountered offline exception:\n{trace}")
                     return CheckerResultMessage(
-                        result=CheckerTaskResult.OFFLINE, message=e.message
+                        result=CheckerTaskResult.OFFLINE,
+                        message=e.message,
+                        metadata=e.metadata or None,
                     )
                 except InternalErrorException as e:
                     span.record_exception(e)
@@ -1200,7 +1221,9 @@ class Enochecker:
                         logger.info(e.log_message)
                     logger.info(f"Encountered internal error exception:\n{trace}")
                     return CheckerResultMessage(
-                        result=CheckerTaskResult.INTERNAL_ERROR, message=e.message
+                        result=CheckerTaskResult.INTERNAL_ERROR,
+                        message=e.message,
+                        metadata=e.metadata or None,
                     )
                 except ValidationError as e:
                     span.record_exception(e)

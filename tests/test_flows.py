@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import pytest
 
-from enochecker3 import Enochecker, HavocCheckerTaskMessage, TaskMetadata
+from enochecker3 import Enochecker, HavocCheckerTaskMessage, MumbleException, TaskMetadata
 from enochecker3.enochecker import AsyncSocket
 from enochecker3.mock import MockAsyncMongoClient
 
@@ -97,6 +97,36 @@ async def test_http_client_flow_recorded() -> None:
     assert flow["dst_port"] == port
     assert isinstance(flow["src_port"], int)
     assert flow["end"] is not None and flow["end"] >= flow["start"]
+
+
+@pytest.mark.asyncio
+async def test_flow_recorded_when_checker_raises() -> None:
+    """Flows opened before a checker method fails must still reach the result.
+
+    Without this, an exception (e.g. MumbleException) would discard whatever
+    flows had already been recorded, leaving the engine unable to see any
+    traffic for a failed run.
+    """
+    server = await _echo_line_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, writer = socket
+            writer.write(b"hello\n")
+            await writer.drain()
+            await reader.readline()
+            raise MumbleException("service said something wrong")
+
+        with pytest.raises(MumbleException) as exc_info:
+            await checker._call_havoc(_havoc_task())
+
+    flows = exc_info.value.metadata["flows"]
+    assert len(flows) == 1
+    assert flows[0]["dst_port"] == port
+    assert flows[0]["end"] is not None
 
 
 @pytest.mark.asyncio
