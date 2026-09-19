@@ -104,10 +104,7 @@ async def _reject_down_ctfroute_upstream(response: httpx.Response) -> None:
     if upstream_status is not None and upstream_status.strip().lower() != (
         CTFROUTE_UPSTREAM_UP_VALUE
     ):
-        raise OfflineException(
-            f"{CTFROUTE_UPSTREAM_HEADER} reports upstream is not up "
-            f"(got {upstream_status!r})"
-        )
+        raise OfflineException("Connection to service failed")
 
 
 AsyncSocket = AsyncIterator[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]
