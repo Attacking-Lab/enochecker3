@@ -88,7 +88,8 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 def _haproxy_mode_enabled() -> bool:
-    return os.environ.get(HAPROXY_MODE_ENV_VAR, "").strip().lower() in _TRUTHY_ENV_VALUES
+    value = os.environ.get(HAPROXY_MODE_ENV_VAR, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
 
 
 async def _reject_down_ctfroute_upstream(response: httpx.Response) -> None:
