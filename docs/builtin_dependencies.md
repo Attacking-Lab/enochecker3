@@ -227,6 +227,8 @@ async def putflag_with_random(
 
 Binary protocols, custom network protocols, raw TCP. Returns `(StreamReader, StreamWriter)` tuple. Automatically connects to `task.address:service_port`. Connection closes automatically after method completes, and is recorded in `metadata["flows"]` (see Result Metadata below). Raises `OfflineException` if connection fails.
 
+**HAProxy mode**: with `ENOCHECKER_HAPROXY_MODE` set (see HTTP Client above), an `EOFError` raised while reading from a connection that never received any bytes from the other side is reported as `OfflineException` instead of the usual `MumbleException`. A router-fronted backend that is down typically has the router drop the connection immediately without forwarding anything, which would otherwise look like a checker-side protocol error.
+
 **Usage**:
 ```python
 from enochecker3 import AsyncSocket
