@@ -78,6 +78,36 @@ METHOD_TO_TASK_MESSAGE_MAPPING = {
 
 TIMEOUT_BUFFER = 2
 
+# When set to a truthy value, checkers assume they run behind an HAProxy-style
+# router that stamps every response with X-CTFROUTE-Upstream so a proxied-but-down
+# service can be told apart from a proxied-and-reachable one.
+HAPROXY_MODE_ENV_VAR = "ENOCHECKER_HAPROXY_MODE"
+CTFROUTE_UPSTREAM_HEADER = "X-CTFROUTE-Upstream"
+CTFROUTE_UPSTREAM_UP_VALUE = "up"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _haproxy_mode_enabled() -> bool:
+    return os.environ.get(HAPROXY_MODE_ENV_VAR, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+async def _reject_down_ctfroute_upstream(response: httpx.Response) -> None:
+    """Response hook: treat a non-"up" X-CTFROUTE-Upstream as the service being offline.
+
+    Behind an HAProxy-style router the TCP/HTTP connection to the router itself
+    always succeeds, so a down backend would otherwise surface as a MumbleException
+    from whatever checker code chokes on the router's error page rather than as the
+    OfflineException it actually is.
+    """
+    upstream_status = response.headers.get(CTFROUTE_UPSTREAM_HEADER)
+    if upstream_status is not None and upstream_status.strip().lower() != (
+        CTFROUTE_UPSTREAM_UP_VALUE
+    ):
+        raise OfflineException(
+            f"{CTFROUTE_UPSTREAM_HEADER} reports upstream is not up "
+            f"(got {upstream_status!r})"
+        )
+
 
 AsyncSocket = AsyncIterator[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]
 
@@ -755,12 +785,22 @@ class Enochecker:
         The client is configured with:
         - Base URL pointing to the service (task.address:service_port)
         - SSL verification disabled (for CTF/testing environments)
+        - If the ENOCHECKER_HAPROXY_MODE environment variable is set, every
+          response is checked for an X-CTFROUTE-Upstream header and an
+          OfflineException is raised if it's present and not "up"
 
         Every TCP connection the client's pool opens is recorded in
         metadata["flows"] (5-tuple plus open/close timestamps).
         """
+        event_hooks = (
+            {"response": [_reject_down_ctfroute_upstream]}
+            if _haproxy_mode_enabled()
+            else None
+        )
         client = httpx.AsyncClient(
-            base_url=f"http://{task.address}:{self.service_port}", verify=False
+            base_url=f"http://{task.address}:{self.service_port}",
+            verify=False,
+            event_hooks=event_hooks,
         )
         instrument_httpx_without_propagation(client)
         record_http_flows(client, metadata)

@@ -6,6 +6,8 @@ Enochecker3 uses dependency injection to provide common resources to your checke
 
 Make HTTP requests to the service being checked. Pre-configured with `base_url=http://{task.address}:{service_port}` and SSL verification disabled (suitable for CTF environments). Every TCP connection its pool opens is recorded in `metadata["flows"]` (see Result Metadata below).
 
+**HAProxy mode**: when checkers run behind an HAProxy-style router that stamps responses with an `X-CTFROUTE-Upstream` header, set the `ENOCHECKER_HAPROXY_MODE` environment variable (e.g. `ENOCHECKER_HAPROXY_MODE=1`) to have the client raise `OfflineException` whenever that header is present and not `up`. Without this, a down backend behind the router still answers the TCP/HTTP connection, so checker code would otherwise choke on the router's response and report a misleading `MumbleException` instead of `OfflineException`.
+
 **Usage**:
 ```python
 from httpx import AsyncClient
