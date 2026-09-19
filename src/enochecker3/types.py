@@ -69,6 +69,10 @@ class BaseException(Exception):
     ) -> None:
         self.message: Optional[str] = message
         self.log_message: Optional[str] = log_message
+        # Filled in by Enochecker._call_method with whatever metadata (e.g.
+        # recorded flows) had already accumulated before this exception cut
+        # the checker method short, so it still reaches the result message.
+        self.metadata: Optional[TaskMetadata] = None
 
 
 class MumbleException(BaseException):
