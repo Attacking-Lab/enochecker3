@@ -790,7 +790,7 @@ class Enochecker:
         Every TCP connection the client's pool opens is recorded in
         metadata["flows"] (5-tuple plus open/close timestamps).
         """
-        event_hooks = (
+        event_hooks: Optional[Dict[str, List[Callable[..., Any]]]] = (
             {"response": [_reject_down_ctfroute_upstream]}
             if _haproxy_mode_enabled()
             else None
