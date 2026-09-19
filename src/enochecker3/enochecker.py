@@ -15,9 +15,11 @@ from typing import (
     AsyncIterator,
     Callable,
     Dict,
+    Iterable,
     List,
     Optional,
     Set,
+    SupportsIndex,
     Tuple,
     Type,
     Union,
@@ -884,6 +886,14 @@ class Enochecker:
         The connection is recorded in metadata["flows"] (5-tuple plus open/close
         timestamps).
 
+        In HAProxy mode (see ENOCHECKER_HAPROXY_MODE), an EOFError raised while
+        the checker was reading from a connection that never received any bytes
+        from the other side is reported as OfflineException instead of the usual
+        MumbleException: behind an HAProxy-style router the TCP connection to the
+        router itself always succeeds, so a down backend that the router drops
+        without forwarding anything would otherwise look like a checker-side
+        protocol error rather than the OfflineException it actually is.
+
         Example:
             async def my_checker(socket: AsyncSocket):
                 reader, writer = socket
@@ -906,8 +916,28 @@ class Enochecker:
             conn[1].get_extra_info("peername"),
             start,
         )
+
+        reader = conn[0]
+        received_data = False
+        if _haproxy_mode_enabled():
+            orig_feed_data = reader.feed_data
+
+            def _feed_data(data: Iterable[SupportsIndex]) -> None:
+                nonlocal received_data
+                if data:
+                    received_data = True
+                orig_feed_data(data)
+
+            reader.feed_data = _feed_data  # type: ignore[method-assign]
+
         try:
             yield conn
+        except EOFError as e:
+            if _haproxy_mode_enabled() and not received_data:
+                raise OfflineException(
+                    "Connection to service closed before sending any data"
+                ) from e
+            raise
         finally:
             # Ensure the socket is properly closed even if the checker crashes
             conn[1].close()

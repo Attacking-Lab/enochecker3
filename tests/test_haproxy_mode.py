@@ -4,8 +4,9 @@ import httpx
 import pytest
 
 from enochecker3 import Enochecker, HavocCheckerTaskMessage
+from enochecker3.enochecker import AsyncSocket
 from enochecker3.mock import MockAsyncMongoClient
-from enochecker3.types import CheckerTaskResult, OfflineException
+from enochecker3.types import CheckerTaskResult, MumbleException, OfflineException
 
 
 def _havoc_task() -> HavocCheckerTaskMessage:
@@ -88,3 +89,79 @@ async def test_down_upstream_ignored_when_haproxy_mode_disabled(monkeypatch):
         result = await checker._call_havoc(_havoc_task())
 
     assert result.result == CheckerTaskResult.OK
+
+
+async def _closing_server() -> asyncio.Server:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+async def _greet_then_close_server() -> asyncio.Server:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        writer.write(b"hi\n")
+        await writer.drain()
+        writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_reports_offline_for_tcp_close_without_data(monkeypatch):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _closing_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, _writer = socket
+            await reader.readuntil(b"\n")
+
+        with pytest.raises(OfflineException):
+            await checker._call_havoc(_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_keeps_mumble_for_tcp_close_after_data(monkeypatch):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _greet_then_close_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, _writer = socket
+            await reader.readline()
+            # A second read past the server's close, with no more data coming,
+            # is the abrupt-close case that should stay a MumbleException.
+            await reader.readuntil(b"\n")
+
+        with pytest.raises(MumbleException):
+            await checker._call_havoc(_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_tcp_close_without_data_stays_mumble_when_haproxy_mode_disabled(
+    monkeypatch,
+):
+    monkeypatch.delenv("ENOCHECKER_HAPROXY_MODE", raising=False)
+    server = await _closing_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, _writer = socket
+            await reader.readuntil(b"\n")
+
+        with pytest.raises(MumbleException):
+            await checker._call_havoc(_havoc_task())
