@@ -28,7 +28,7 @@ class ChainDB:
             )
             if val is None:
                 raise MumbleException(
-                    f"Key {key} not found in ChainDB",
+                    "A prerequisite checker task failed",
                     log_message=f"ChainDB.get({key}) found no entry for "
                     f"task_chain_id {self.task_chain_id}",
                 )
