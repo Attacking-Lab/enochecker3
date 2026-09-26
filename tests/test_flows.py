@@ -3,7 +3,12 @@ import asyncio
 import httpx
 import pytest
 
-from enochecker3 import Enochecker, HavocCheckerTaskMessage, MumbleException, TaskMetadata
+from enochecker3 import (
+    Enochecker,
+    HavocCheckerTaskMessage,
+    MumbleException,
+    TaskMetadata,
+)
 from enochecker3.enochecker import AsyncSocket
 from enochecker3.mock import MockAsyncMongoClient
 

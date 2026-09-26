@@ -945,7 +945,7 @@ class Enochecker:
                     received_data = True
                 orig_feed_data(data)
 
-            reader.feed_data = _feed_data  # type: ignore[method-assign]
+            reader.feed_data = _feed_data  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         try:
             yield conn
