@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import Any, Iterator, Optional, cast
@@ -31,6 +32,41 @@ from opentelemetry.util import types
 from opentelemetry.util._decorator import _agnosticcontextmanager
 
 from enochecker3.telemetry_attributes import OpenTelemetryCommonAttributesContext
+
+
+_ATTRIBUTE_SCALAR_TYPES = (bool, str, bytes, int, float)
+
+
+def _is_attribute_scalar(value: Any) -> bool:
+    if isinstance(value, bytes):
+        # otel decodes bytes attributes and warns when that fails
+        try:
+            value.decode()
+        except UnicodeDecodeError:
+            return False
+        return True
+    return isinstance(value, _ATTRIBUTE_SCALAR_TYPES)
+
+
+def as_span_attribute(value: Any) -> types.AttributeValue:
+    """Coerce a value into something otel accepts as a span attribute.
+
+    Otel takes only scalars and homogeneous sequences of them, and drops
+    anything else with a warning on the `opentelemetry.attributes` logger.
+    Values it would reject are rendered as JSON instead of turning into noise.
+    """
+    if _is_attribute_scalar(value):
+        return cast(types.AttributeValue, value)
+    if isinstance(value, (list, tuple)):
+        element_types = {type(e) for e in value if e is not None}
+        if len(element_types) <= 1 and all(
+            e is None or _is_attribute_scalar(e) for e in value
+        ):
+            return cast(types.AttributeValue, list(value))
+    try:
+        return json.dumps(value, default=repr)
+    except (TypeError, ValueError):
+        return repr(value)
 
 
 def _setup_logging(resource: Resource, log_exporter: LogRecordExporter) -> None:

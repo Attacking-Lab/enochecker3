@@ -4,6 +4,7 @@ from opentelemetry import trace
 from opentelemetry.trace import get_current_span
 from pymongo.asynchronous.collection import AsyncCollection
 
+from .telemetry import as_span_attribute
 from .types import MumbleException
 
 
@@ -32,7 +33,9 @@ class ChainDB:
                     log_message=f"ChainDB.get({key}) found no entry for "
                     f"task_chain_id {self.task_chain_id}",
                 )
-            get_current_span().set_attribute(f"chaindb.value.{key}", val["value"])
+            get_current_span().set_attribute(
+                f"chaindb.value.{key}", as_span_attribute(val["value"])
+            )
             return val["value"]
 
     async def set(self, key: str, val: Any) -> None:
@@ -53,4 +56,6 @@ class ChainDB:
                 },
                 upsert=True,
             )
-            get_current_span().set_attribute(f"chaindb.value.{key}", val)
+            get_current_span().set_attribute(
+                f"chaindb.value.{key}", as_span_attribute(val)
+            )

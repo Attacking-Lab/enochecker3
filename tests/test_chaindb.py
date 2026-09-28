@@ -4,6 +4,10 @@ import secrets
 import pymongo
 import pytest
 import pytest_asyncio
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
@@ -82,3 +86,43 @@ async def test_basic_real_mongodb(real_collection, val):
     await chaindb.set("asd", val)
 
     assert await chaindb.get("asd") == val
+
+
+@pytest.fixture
+def recorded_spans(monkeypatch):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    # set_tracer_provider() is process-global and one-shot, so patch the lookup
+    # ChainDB performs rather than installing a provider for the whole suite
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
+    yield exporter
+    provider.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "val,attribute",
+    [
+        ({"x": 1, "y": 2}, '{"x": 1, "y": 2}'),
+        ([123, "asd"], '[123, "asd"]'),
+        (["a", "b"], ("a", "b")),
+    ],
+)
+async def test_value_recorded_as_span_attribute(
+    chaindb, recorded_spans, caplog, val, attribute
+):
+    """Values otel rejects must still reach the span, without warning noise."""
+    with caplog.at_level("WARNING", logger="opentelemetry"):
+        await chaindb.set("asd", val)
+        assert await chaindb.get("asd") == val
+
+    assert [
+        r.getMessage() for r in caplog.records if r.name.startswith("opentelemetry")
+    ] == []
+
+    spans = recorded_spans.get_finished_spans()
+    assert [s.name for s in spans] == ["ChainDB.set(asd)", "ChainDB.get(asd)"]
+    for span in spans:
+        assert span.attributes is not None
+        assert span.attributes["chaindb.value.asd"] == attribute
