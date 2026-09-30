@@ -152,3 +152,33 @@ async def getflag_with_auth(
     response = await authenticated_client.get(f"/api/user/{username}/bio")
     assert_in(task.flag, response.text)
 ```
+
+### Flow Accounting on Custom HTTP Clients
+
+The built-in `httpx.AsyncClient` dependency records every TCP connection its pool opens under `metadata["flows"]` (see [Result Metadata](builtin_dependencies.md#result-metadata-taskmetadata)). A client you build yourself does not get this for free — call `record_http_flows` on it and its traffic shows up in the result alongside everything else.
+
+```python
+import httpx
+from enochecker3 import CheckerTaskMessage, TaskMetadata, record_http_flows
+
+@checker.register_named_dependency("slow")
+def _get_slow_client(
+    task: CheckerTaskMessage,
+    metadata: TaskMetadata,  # the shared per-task bag, injected like any dependency
+) -> httpx.AsyncClient:
+    """A client with a longer timeout, still accounted for in metadata["flows"]."""
+    client = httpx.AsyncClient(
+        base_url=f"http://{task.address}:{checker.service_port}",
+        timeout=60.0,
+    )
+    record_http_flows(client, metadata)
+    return client
+```
+
+Notes:
+
+- Call it **before** the client makes its first request; connections already open are not retroactively recorded.
+- Calling it twice on the same client is a no-op, so passing the built-in client through a wrapper dependency that also calls it will not double-count.
+- Transports registered via httpx's `mounts=` argument are covered as well.
+- It returns `False` if the client exposes no connection pool to hook into (an `httpx.MockTransport`, an ASGI transport, or a future httpx release that moves its internals). Assert on the return value if a missing flow record would be a problem for you.
+- Raw sockets opened outside of httpx are not covered. Use the built-in `AsyncSocket` dependency, which records its connection, or build flow entries yourself with `enochecker3.flows.record_flow` / `close_flow`.

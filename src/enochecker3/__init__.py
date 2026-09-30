@@ -7,6 +7,7 @@ from .enochecker import (
     EnocheckerException,
     InvalidVariantIdsException,
 )
+from .flows import record_http_flows
 from .types import (
     CheckerTaskMessage,
     ExploitCheckerTaskMessage,
@@ -44,4 +45,5 @@ __all__ = [
     "TaskMetadata",
     "TestCheckerTaskMessage",
     "FlagSearcher",
+    "record_http_flows",
 ]

@@ -8,6 +8,7 @@ from enochecker3 import (
     HavocCheckerTaskMessage,
     MumbleException,
     TaskMetadata,
+    record_http_flows,
 )
 from enochecker3.enochecker import AsyncSocket
 from enochecker3.mock import MockAsyncMongoClient
@@ -159,3 +160,86 @@ async def test_socket_and_http_flows_coexist() -> None:
     assert len(flows) == 2
     assert {f["dst_port"] for f in flows} == {port}
     assert all(f["end"] is not None and f["end"] >= f["start"] for f in flows)
+
+
+@pytest.mark.asyncio
+async def test_custom_client_flow_recorded() -> None:
+    server = await _http_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.register_named_dependency("custom")
+        def get_custom_client(
+            task: HavocCheckerTaskMessage, metadata: TaskMetadata
+        ) -> httpx.AsyncClient:
+            client = httpx.AsyncClient(base_url=f"http://{task.address}:{port}")
+            assert record_http_flows(client, metadata)
+            return client
+
+        @checker.havoc(0)
+        async def havoc(custom_client: httpx.AsyncClient) -> None:
+            response = await custom_client.get("/")
+            assert response.status_code == 200
+
+        result = await checker._call_havoc(_havoc_task())
+
+    flows = result.metadata["flows"]
+    assert len(flows) == 1
+    assert flows[0]["dst_port"] == port
+    assert flows[0]["end"] is not None and flows[0]["end"] >= flows[0]["start"]
+
+
+@pytest.mark.asyncio
+async def test_record_http_flows_does_not_double_count() -> None:
+    """Calling it on the built-in client must not record each connection twice."""
+    server = await _http_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(client: httpx.AsyncClient, metadata: TaskMetadata) -> None:
+            record_http_flows(client, metadata)
+            await client.get("/")
+
+        result = await checker._call_havoc(_havoc_task())
+
+    assert len(result.metadata["flows"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_mounted_transport_flow_recorded() -> None:
+    server = await _http_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(task: HavocCheckerTaskMessage, metadata: TaskMetadata) -> None:
+            client = httpx.AsyncClient(
+                base_url=f"http://{task.address}:{port}",
+                mounts={"http://": httpx.AsyncHTTPTransport()},
+            )
+            assert record_http_flows(client, metadata)
+            async with client:
+                await client.get("/")
+
+        result = await checker._call_havoc(_havoc_task())
+
+    flows = result.metadata["flows"]
+    assert len(flows) == 1
+    assert flows[0]["dst_port"] == port
+
+
+@pytest.mark.asyncio
+async def test_record_http_flows_reports_unhookable_client() -> None:
+    """A transport without a connection pool has no flows to account for."""
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200))
+    )
+    metadata = TaskMetadata()
+    assert not record_http_flows(client, metadata)
+    async with client:
+        await client.get("http://example.com/")
+    assert "flows" not in metadata
