@@ -18,6 +18,7 @@ the connection is torn down.
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import httpx
 from httpcore import AsyncNetworkBackend, AsyncNetworkStream
 from httpcore._backends.base import SOCKET_OPTION
 
@@ -148,16 +149,48 @@ class _FlowRecordingBackend(AsyncNetworkBackend):
         await self._inner.sleep(seconds)
 
 
-def record_http_flows(client: Any, metadata: TaskMetadata) -> None:
-    """Make an ``httpx.AsyncClient`` record the TCP connections its pool opens.
-
-    Reaches into the transport's httpcore connection pool to wrap the network
-    backend -- httpx exposes no public hook for connection-level events, so this
-    is coupled to httpx/httpcore internals and no-ops if their shape changes.
-    """
-    transport = getattr(client, "_transport", None)
+def _wrap_transport(transport: Any, metadata: TaskMetadata) -> bool:
     pool = getattr(transport, "_pool", None)
     backend = getattr(pool, "_network_backend", None)
     if pool is None or backend is None:
-        return
+        return False
+    if isinstance(backend, _FlowRecordingBackend):
+        # Already accounted for; wrapping twice would record every connection
+        # once per layer.
+        return True
     pool._network_backend = _FlowRecordingBackend(backend, metadata)
+    return True
+
+
+def record_http_flows(client: httpx.AsyncClient, metadata: TaskMetadata) -> bool:
+    """Make an ``httpx.AsyncClient`` record the TCP connections its pool opens.
+
+    The built-in client dependency already does this; call it on clients you
+    build yourself so their traffic shows up in ``metadata["flows"]`` too::
+
+        @checker.register_named_dependency("slow")
+        def get_slow_client(
+            task: CheckerTaskMessage, metadata: TaskMetadata
+        ) -> httpx.AsyncClient:
+            client = httpx.AsyncClient(timeout=60.0)
+            record_http_flows(client, metadata)
+            return client
+
+    Calling it more than once on the same client is a no-op. It covers the
+    client's default transport plus any transports mounted via ``mounts=``, and
+    has to be called before the client opens its first connection.
+
+    Reaches into the transport's httpcore connection pool to wrap the network
+    backend -- httpx exposes no public hook for connection-level events, so this
+    is coupled to httpx/httpcore internals. Returns whether accounting could be
+    installed on at least one of the client's transports, so a caller that
+    cannot tolerate silently missing flows can check rather than guess.
+    """
+    transports = [getattr(client, "_transport", None)]
+    transports.extend(getattr(client, "_mounts", {}).values())
+    wrapped = [
+        _wrap_transport(transport, metadata)
+        for transport in transports
+        if transport is not None
+    ]
+    return any(wrapped)
