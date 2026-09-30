@@ -1,6 +1,8 @@
 __all__ = [
     "CheckerMethod",
     "CheckerTaskMessage",
+    "CheckerHealthMessage",
+    "CheckerHealthStatus",
     "CheckerInfoMessage",
     "CheckerResultMessage",
     "CheckerTaskResult",
@@ -10,6 +12,8 @@ __all__ = [
 from typing import Any, Dict, Literal, Optional
 
 from enochecker_core import (
+    CheckerHealthMessage,
+    CheckerHealthStatus,
     CheckerInfoMessage,
     CheckerMethod,
     CheckerResultMessage,

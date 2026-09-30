@@ -29,7 +29,8 @@ from typing import (
 import httpx
 import pymongo
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
 from opentelemetry.trace import StatusCode, get_current_span
@@ -50,6 +51,8 @@ from enochecker3.utils import FlagSearcher
 from .chaindb import ChainDB
 from .flows import close_flow, record_flow, record_http_flows
 from .types import (
+    CheckerHealthMessage,
+    CheckerHealthStatus,
     CheckerInfoMessage,
     CheckerMethod,
     CheckerResultMessage,
@@ -87,6 +90,14 @@ HAPROXY_MODE_ENV_VAR = "ENOCHECKER_HAPROXY_MODE"
 CTFROUTE_UPSTREAM_HEADER = "X-CTFROUTE-Upstream"
 CTFROUTE_UPSTREAM_UP_VALUE = "up"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _health_body(
+    status: CheckerHealthStatus, detail: Optional[str] = None
+) -> Dict[str, Any]:
+    return CheckerHealthMessage(status=status, detail=detail).model_dump(
+        mode="json", exclude_none=True
+    )
 
 
 def _haproxy_mode_enabled() -> bool:
@@ -276,6 +287,8 @@ class Enochecker:
         # Maps each exploit variant_id to the flag variant_id (flag store) it targets
         self._exploit_flag_variants: Dict[int, int] = {}
 
+        self._health_check: Optional[Callable[..., Any]] = None
+
     async def _init(self) -> None:
         PymongoInstrumentor().instrument()
 
@@ -394,6 +407,22 @@ class Enochecker:
         self, variant_id: int
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return self._define_method(CheckerMethod.TEST, variant_id)
+
+    def health(self, f: Callable[..., Any]) -> Callable[..., Any]:
+        """
+        Override what `GET /health` reports.
+
+        The handler takes no arguments and may be sync or async. Returning None
+        keeps the default `CheckerHealthMessage` ok body, returning anything else
+        uses it as the response body unvalidated, and raising reports the checker
+        as unhealthy with status 503 and an error `CheckerHealthMessage`. Raise
+        `fastapi.HTTPException` to choose the status code.
+        """
+        if self._health_check is not None:
+            raise EnocheckerException("Health check already defined")
+
+        self._health_check = f
+        return f
 
     def resolve_injector(self, name: str, t: type) -> Callable[..., Any]:
         """
@@ -1118,6 +1147,27 @@ class Enochecker:
         def service() -> CheckerInfoMessage:
             return service_info
 
+        @app.get("/health")
+        async def health() -> Any:
+            if self._health_check is None:
+                return _health_body(CheckerHealthStatus.OK)
+
+            try:
+                result = self._health_check()
+                if isawaitable(result):
+                    result = await result
+            except HTTPException:
+                raise
+            except Exception as e:
+                trace = traceback.format_exc()
+                self._logger.error(f"Health check failed\n{trace}")
+                return JSONResponse(
+                    status_code=503,
+                    content=_health_body(CheckerHealthStatus.ERROR, str(e)),
+                )
+
+            return _health_body(CheckerHealthStatus.OK) if result is None else result
+
         @app.post("/", response_model=CheckerResultMessage)
         async def checker(task: CheckerTaskMessage) -> CheckerResultMessage:
             attributes = {
@@ -1237,7 +1287,7 @@ class Enochecker:
                         message=f"Malformed task for method {task.method}",
                     )
 
-        FastAPIInstrumentor().instrument_app(app)
+        FastAPIInstrumentor().instrument_app(app, excluded_urls="/health")
 
         return app
 

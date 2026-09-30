@@ -288,8 +288,8 @@ wheels = [
 
 [[package]]
 name = "enochecker-core"
-version = "0.18.2"
-source = { git = "https://git.atklab.cloud/atklab/enochecker-core?rev=v0.18.2#a9a3727d65cb518021c3ae68bd76f8fb66481d12" }
+version = "0.19.0"
+source = { git = "https://git.atklab.cloud/atklab/enochecker-core?rev=v0.19.0#bf0de6d49878aa536363daa2a15a81c025f96fa7" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -331,7 +331,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "enochecker-core", git = "https://git.atklab.cloud/atklab/enochecker-core?rev=v0.18.2" },
+    { name = "enochecker-core", git = "https://git.atklab.cloud/atklab/enochecker-core?rev=v0.19.0" },
     { name = "fastapi", specifier = ">=0.128.0,<0.129.0" },
     { name = "gunicorn", specifier = "==24.1.1" },
     { name = "httpx", specifier = ">=0.28.0,<0.29.0" },

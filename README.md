@@ -112,6 +112,41 @@ checker = Enochecker("ExampleService", 1337, mongo_client=MockAsyncMongoClient()
 
 See [docs/faq.md](docs/faq.md#do-i-need-mongodb-running) for a full example.
 
+## Health Endpoint
+
+The checker serves `GET /health` for infrastructure probes (Kubernetes, Docker,
+uptime monitoring). By default it answers `200` with `{"status": "ok"}` once the
+app is up. These probes are excluded from OpenTelemetry tracing, so a short probe
+interval does not flood the collector.
+
+Override it with `@checker.health`:
+
+```python
+@checker.health
+async def health() -> dict:
+    await probe_my_dependency()
+    return {"status": "ok", "revision": REVISION}
+```
+
+The handler takes no arguments and may be sync or async:
+
+- Return `None` to keep the default `{"status": "ok"}` body.
+- Return anything else to use it as the response body, unvalidated.
+- Raise to report the checker as unhealthy with status `503` and
+  `{"status": "error", "detail": "<exception message>"}`.
+- Raise `fastapi.HTTPException` to choose the status code yourself.
+
+Both bodies the library itself emits are
+`enochecker_core.CheckerHealthMessage`, so a consumer can validate a `/health`
+response against that model rather than matching keys by hand. The model allows
+extra fields, which is how a handler's own additions survive validation. A
+handler's body is not checked against it, so you are free to report whatever
+shape you want.
+
+Dependencies are not injected here, because there is no task to resolve them
+against. Engine-side reachability checks use `GET /service` rather than `/health`,
+so this endpoint is yours to shape for your own infrastructure.
+
 ## Telemetry
 The checker supports OpenTelemetry, with this configuration:
 - Set the environment variable `OTEL_EXPORTER_OTLP_ENDPOINT` to the URL of your OpenTelemetry collector.

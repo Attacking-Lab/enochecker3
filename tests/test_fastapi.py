@@ -1,11 +1,12 @@
 from typing import Union
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from enochecker3 import (
     Enochecker,
+    EnocheckerException,
     ExploitCheckerTaskMessage,
     GetflagCheckerTaskMessage,
     GetnoiseCheckerTaskMessage,
@@ -14,7 +15,12 @@ from enochecker3 import (
     TaskMetadata,
     TestCheckerTaskMessage,
 )
-from enochecker3.types import CheckerResultMessage, CheckerTaskResult
+from enochecker3.types import (
+    CheckerHealthMessage,
+    CheckerHealthStatus,
+    CheckerResultMessage,
+    CheckerTaskResult,
+)
 
 
 @pytest.mark.asyncio
@@ -166,6 +172,7 @@ def test_fastapi_app_property(
     # Check that routes are registered
     routes = [route.path for route in app.routes]
     assert "/service" in routes
+    assert "/health" in routes
     assert "/" in routes
 
     result = client.post("/", json=task.model_dump())
@@ -253,3 +260,141 @@ def test_fastapi_app_returns_metadata_under_camel_key(checker: Enochecker):
         "attempts": 3,
         "nested": {"k": [1, 2]},
     }
+
+
+def test_health_defaults_to_ok(checker: Enochecker):
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    client = TestClient(checker.app)
+
+    result = client.get("/health")
+
+    assert result.status_code == 200
+    assert result.json() == {"status": "ok"}
+
+
+def test_health_override_returning_none_keeps_default_body(checker: Enochecker):
+    calls = []
+
+    @checker.health
+    async def health() -> None:
+        calls.append(True)
+
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    result = TestClient(checker.app).get("/health")
+
+    assert result.status_code == 200
+    assert result.json() == {"status": "ok"}
+    assert calls == [True]
+
+
+def test_health_override_body_is_used_verbatim(checker: Enochecker):
+    """A handler may report more than the bare status, so its body is not
+    narrowed to a fixed schema."""
+
+    @checker.health
+    def health() -> dict:
+        return {"status": "ok", "mongo": "up"}
+
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    result = TestClient(checker.app).get("/health")
+
+    assert result.status_code == 200
+    assert result.json() == {"status": "ok", "mongo": "up"}
+
+
+def test_health_override_raising_reports_unavailable(checker: Enochecker):
+    @checker.health
+    async def health() -> None:
+        raise RuntimeError("mongo unreachable")
+
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    result = TestClient(checker.app, raise_server_exceptions=False).get("/health")
+
+    assert result.status_code == 503
+    assert result.json() == {"status": "error", "detail": "mongo unreachable"}
+
+
+def test_health_override_http_exception_picks_status_code(checker: Enochecker):
+    @checker.health
+    async def health() -> None:
+        raise HTTPException(status_code=429, detail="too many probes")
+
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    result = TestClient(checker.app, raise_server_exceptions=False).get("/health")
+
+    assert result.status_code == 429
+    assert result.json() == {"detail": "too many probes"}
+
+
+def test_health_rejects_second_definition(checker: Enochecker):
+    @checker.health
+    async def health() -> None:
+        pass
+
+    with pytest.raises(EnocheckerException):
+
+        @checker.health
+        async def health_again() -> None:
+            pass
+
+
+def test_health_bodies_conform_to_the_core_model(checker: Enochecker):
+    """Both bodies the library emits itself are `CheckerHealthMessage`, so a
+    consumer can validate them instead of matching keys by hand."""
+
+    @checker.putflag(0)
+    async def putflag_test() -> None:
+        pass
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    ok = TestClient(checker.app).get("/health")
+    assert (
+        CheckerHealthMessage.model_validate(ok.json()).status == CheckerHealthStatus.OK
+    )
+
+    @checker.health
+    async def health() -> None:
+        raise RuntimeError("mongo unreachable")
+
+    error = TestClient(checker.app, raise_server_exceptions=False).get("/health")
+    parsed = CheckerHealthMessage.model_validate(error.json())
+    assert parsed.status == CheckerHealthStatus.ERROR
+    assert parsed.detail == "mongo unreachable"
