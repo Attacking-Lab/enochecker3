@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any, Iterator, Optional, cast
 
 import httpx
@@ -228,8 +229,35 @@ def _nop(*args: Any, **kwargs: Any) -> None:
     pass
 
 
+_ID_PATH_SEGMENT = re.compile(
+    r"(?<=/)(?:"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"|[0-9]+"
+    r"|[0-9a-fA-F]{16,}"
+    r")(?=/|$)"
+)
+
+
+def request_span_name(request: RequestInfo) -> str:
+    """Name an outgoing request after its route rather than its URL.
+
+    A span name ends up as a metric label wherever these spans are turned
+    into metrics, so it has to come from a set that is bounded before the
+    request is made. A URL is not: it carries the team's own address, and
+    checkers routinely put a freshly generated id in the path or the query.
+    Naming spans after it opened one metric per request, each holding a
+    single measurement -- three million of them on the 2026 finals stage,
+    which is more than the metrics backend accepts for a whole event.
+
+    Only the path survives, with id-shaped segments replaced. The address is
+    already a dimension of every task, and the full URL stays on the span as
+    `http.url`, so nothing is lost from a trace.
+    """
+    return f"{request.method.decode()} {_ID_PATH_SEGMENT.sub('{id}', request.url.path)}"
+
+
 async def async_request_hook(span: Span, request: RequestInfo) -> None:
-    span.update_name(f"{request.method.decode()} {request.url}")
+    span.update_name(request_span_name(request))
     if request.headers:
         for k, v in request.headers.items():
             span.set_attribute(f"http.headers.{k}", v)
