@@ -320,6 +320,8 @@ A mutable, per-task `dict` for attaching arbitrary, checker-defined data to the 
 
 **Automatic `flows` key**: the connection-opening dependencies (`httpx.AsyncClient` and `AsyncSocket`) record every TCP connection they open under `metadata["flows"]`, so it is present whenever a checker touched the service over one of them. Each entry is `{"protocol", "src_ip", "src_port", "dst_ip", "dst_port", "start", "end"}`, where `start`/`end` are Unix timestamps (seconds) at connection open/close. Use it to correlate checker traffic with packet captures. You can append your own keys alongside it.
 
+Clients you construct yourself are not covered automatically — see [Flow accounting on custom HTTP clients](adding_custom_dependencies.md#flow-accounting-on-custom-http-clients) to opt them in.
+
 **Usage**:
 ```python
 from enochecker3 import TaskMetadata
