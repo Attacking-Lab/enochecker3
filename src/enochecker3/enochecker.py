@@ -98,6 +98,10 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 # failing fast is the whole point.
 MONGO_HEALTH_PROBE_TIMEOUT_S = 2.0
 
+# httpx's own default, kept for the connect/write/pool phases of the injected
+# client so only the read phase follows the task timeout.
+DEFAULT_HTTP_TIMEOUT_S = 5.0
+
 
 def _health_body(
     status: CheckerHealthStatus, detail: Optional[str] = None
@@ -868,6 +872,13 @@ class Enochecker:
         The client is configured with:
         - Base URL pointing to the service (task.address:service_port)
         - SSL verification disabled (for CTF/testing environments)
+        - A read timeout of the task's own timeout, so the task budget is the
+          only thing that decides a service answered too slowly. httpx would
+          otherwise cut the read off after its 5s default, which has nothing to
+          do with the round and, under ENOCHECKER_HAPROXY_MODE, hides a slow
+          router's X-CTFROUTE-Upstream behind a MumbleException for the
+          OfflineException it should have been. The other phases keep httpx's
+          defaults.
         - If the ENOCHECKER_HAPROXY_MODE environment variable is set, every
           response is checked for an X-CTFROUTE-Upstream header and an
           OfflineException is raised if it's present and not "up"
@@ -884,6 +895,7 @@ class Enochecker:
             base_url=f"http://{task.address}:{self.service_port}",
             verify=False,
             event_hooks=event_hooks,
+            timeout=httpx.Timeout(DEFAULT_HTTP_TIMEOUT_S, read=task.timeout / 1000),
         )
         instrument_httpx_without_propagation(client)
         record_http_flows(client, metadata)

@@ -6,7 +6,9 @@ Enochecker3 uses dependency injection to provide common resources to your checke
 
 Make HTTP requests to the service being checked. Pre-configured with `base_url=http://{task.address}:{service_port}` and SSL verification disabled (suitable for CTF environments). Every TCP connection its pool opens is recorded in `metadata["flows"]` (see Result Metadata below).
 
-**HAProxy mode**: when checkers run behind an HAProxy-style router that stamps responses with an `X-CTFROUTE-Upstream` header, set the `ENOCHECKER_HAPROXY_MODE` environment variable (e.g. `ENOCHECKER_HAPROXY_MODE=1`) to have the client raise `OfflineException` whenever that header is present and not `up`. Without this, a down backend behind the router still answers the TCP/HTTP connection, so checker code would otherwise choke on the router's response and report a misleading `MumbleException` instead of `OfflineException`.
+**Timeouts**: the read timeout is the task's own `timeout`, so how long a service may take to answer is decided by the round budget rather than by httpx's 5s default, which the checker's enclosing task timeout would in any case overrule. Connect, write and pool keep httpx's 5s. A client you register yourself gets httpx's defaults unless you pass `timeout=` (see [adding_custom_dependencies.md](adding_custom_dependencies.md)).
+
+**HAProxy mode**: when checkers run behind an HAProxy-style router that stamps responses with an `X-CTFROUTE-Upstream` header, set the `ENOCHECKER_HAPROXY_MODE` environment variable (e.g. `ENOCHECKER_HAPROXY_MODE=1`) to have the client raise `OfflineException` whenever that header is present and not `up`. Without this, a down backend behind the router still answers the TCP/HTTP connection, so checker code would otherwise choke on the router's response and report a misleading `MumbleException` instead of `OfflineException`. A router is often slow precisely because its backend is down, which is why the read timeout follows the task timeout: cutting the read off earlier would discard the very header this mode reads.
 
 **Usage**:
 ```python
