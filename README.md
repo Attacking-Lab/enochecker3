@@ -115,11 +115,18 @@ See [docs/faq.md](docs/faq.md#do-i-need-mongodb-running) for a full example.
 ## Health Endpoint
 
 The checker serves `GET /health` for infrastructure probes (Kubernetes, Docker,
-uptime monitoring). By default it answers `200` with `{"status": "ok"}` once the
-app is up. These probes are excluded from OpenTelemetry tracing, so a short probe
+uptime monitoring). By default it pings MongoDB and answers `200` with
+`{"status": "ok"}` if that succeeds, or `503` with
+`{"status": "error", "detail": "MongoDB unreachable: ..."}` if it does not. The
+ping is bounded to two seconds, so set the prober's own timeout above that.
+
+MongoDB is probed because it is the dependency every checker has and the one a
+running checker can lose silently: losing it at startup takes the app down before
+it serves anything, so an answer at all already rules that out. Both the endpoint
+and the ping it makes are excluded from OpenTelemetry tracing, so a short probe
 interval does not flood the collector.
 
-Override it with `@checker.health`:
+Replace the default with `@checker.health`:
 
 ```python
 @checker.health
@@ -130,11 +137,14 @@ async def health() -> dict:
 
 The handler takes no arguments and may be sync or async:
 
-- Return `None` to keep the default `{"status": "ok"}` body.
+- Return `None` to keep the plain `{"status": "ok"}` body.
 - Return anything else to use it as the response body, unvalidated.
 - Raise to report the checker as unhealthy with status `503` and
   `{"status": "error", "detail": "<exception message>"}`.
 - Raise `fastapi.HTTPException` to choose the status code yourself.
+
+Defining a handler turns the default MongoDB ping off rather than adding to it, so
+a handler that wants the database covered has to probe it itself.
 
 Both bodies the library itself emits are
 `enochecker_core.CheckerHealthMessage`, so a consumer can validate a `/health`

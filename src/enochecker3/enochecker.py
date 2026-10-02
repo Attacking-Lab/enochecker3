@@ -33,6 +33,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from opentelemetry.trace import StatusCode, get_current_span
 from pydantic import ValidationError
 from pymongo import AsyncMongoClient
@@ -90,6 +91,12 @@ HAPROXY_MODE_ENV_VAR = "ENOCHECKER_HAPROXY_MODE"
 CTFROUTE_UPSTREAM_HEADER = "X-CTFROUTE-Upstream"
 CTFROUTE_UPSTREAM_UP_VALUE = "up"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+# Bounds the default health probe's round trip to MongoDB. A probe answers a
+# prober, so it has to come back inside the prober's own timeout rather than sit
+# on pymongo's 30s server selection default - and when the database is gone,
+# failing fast is the whole point.
+MONGO_HEALTH_PROBE_TIMEOUT_S = 2.0
 
 
 def _health_body(
@@ -408,15 +415,45 @@ class Enochecker:
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return self._define_method(CheckerMethod.TEST, variant_id)
 
+    async def _default_health(self) -> None:
+        """What `GET /health` reports when the checker defines no handler of its
+        own: whether MongoDB answers.
+
+        Every checker has that one dependency whether it uses ChainDB directly or
+        not, and it is the one a running checker can lose without noticing -
+        losing it at startup instead takes the app down before it serves anything,
+        so an answer at all already rules that out. Probing it here means an
+        unmodified checker reports something worth reading rather than "the
+        process is up", which `GET /service` already said.
+
+        Deliberately not instrumented: a prober hitting this every second would
+        otherwise fill the collector with pymongo spans nobody reads, the same
+        reason the endpoint itself is excluded from tracing.
+        """
+        mongo = getattr(self, "_mongo", None)
+        if mongo is None:
+            raise EnocheckerException("still starting up: no MongoDB client yet")
+
+        try:
+            with (
+                suppress_instrumentation(),
+                pymongo.timeout(MONGO_HEALTH_PROBE_TIMEOUT_S),
+            ):
+                await mongo.admin.command("ping")
+        except Exception as e:
+            raise EnocheckerException(f"MongoDB unreachable: {e}") from e
+
     def health(self, f: Callable[..., Any]) -> Callable[..., Any]:
         """
-        Override what `GET /health` reports.
+        Replace what `GET /health` reports, instead of the default MongoDB probe.
 
         The handler takes no arguments and may be sync or async. Returning None
         keeps the default `CheckerHealthMessage` ok body, returning anything else
         uses it as the response body unvalidated, and raising reports the checker
         as unhealthy with status 503 and an error `CheckerHealthMessage`. Raise
-        `fastapi.HTTPException` to choose the status code.
+        `fastapi.HTTPException` to choose the status code. A handler that still
+        wants MongoDB covered has to probe it itself - defining one turns the
+        default probe off rather than adding to it.
         """
         if self._health_check is not None:
             raise EnocheckerException("Health check already defined")
@@ -1149,11 +1186,13 @@ class Enochecker:
 
         @app.get("/health")
         async def health() -> Any:
-            if self._health_check is None:
-                return _health_body(CheckerHealthStatus.OK)
+            # The default probe reports through exactly the same path a checker's
+            # own handler does, so there is one place that decides what a failure
+            # looks like on the wire.
+            check = self._health_check or self._default_health
 
             try:
-                result = self._health_check()
+                result = check()
                 if isawaitable(result):
                     result = await result
             except HTTPException:
