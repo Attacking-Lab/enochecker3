@@ -32,6 +32,15 @@ class TaskMetadata(Dict[str, Any]):
     left empty). Values must be JSON-serializable.
     """
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Set by the connection-recording transports once the service has sent
+        # the task its first byte, so HAProxy mode can tell a service that
+        # never answered from one that answered and then went wrong. An
+        # attribute rather than a key: it is internal and does not belong on
+        # the wire.
+        self.received_upstream_data: bool = False
+
 
 class PutflagCheckerTaskMessage(CheckerTaskMessage):
     flag: str

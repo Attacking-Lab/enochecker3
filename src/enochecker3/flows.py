@@ -79,6 +79,7 @@ class _FlowRecordingStream(AsyncNetworkStream):
         flow: Optional[Flow] = None,
     ) -> None:
         self._inner = inner
+        self._metadata = metadata
         if flow is None:
             flow = record_flow(
                 metadata,
@@ -87,11 +88,13 @@ class _FlowRecordingStream(AsyncNetworkStream):
                 inner.get_extra_info("server_addr"),
                 start,
             )
-        self._metadata = metadata
         self._flow = flow
 
     async def read(self, max_bytes: int, timeout: Optional[float] = None) -> bytes:
-        return await self._inner.read(max_bytes, timeout)
+        data = await self._inner.read(max_bytes, timeout)
+        if data:
+            self._metadata.received_upstream_data = True
+        return data
 
     async def write(self, buffer: bytes, timeout: Optional[float] = None) -> None:
         await self._inner.write(buffer, timeout)

@@ -667,6 +667,15 @@ class Enochecker:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
+            # Behind an HAProxy-style router the connection is to the router,
+            # so running out of time without ever being sent a byte says the
+            # router had nothing to forward -- the same signal the socket
+            # dependency reads from an EOF before any data.
+            if _haproxy_mode_enabled() and not metadata.received_upstream_data:
+                logger.info(f"Service sent no data before the timeout\n{trace}")
+                offline_exc = OfflineException("Timed out before service sent any data")
+                offline_exc.metadata = metadata
+                raise offline_exc
             logger.error(f"Service responding too slow\n{trace}")
             mumble_exc = MumbleException("Service responding too slow")
             mumble_exc.metadata = metadata
@@ -881,10 +890,16 @@ class Enochecker:
           defaults.
         - If the ENOCHECKER_HAPROXY_MODE environment variable is set, every
           response is checked for an X-CTFROUTE-Upstream header and an
-          OfflineException is raised if it's present and not "up"
+          OfflineException is raised if it's present and not "up"; a task that
+          runs out of time without the service having sent a single byte is
+          reported Offline too, since behind a router that means nothing was
+          there to answer
 
         Every TCP connection the client's pool opens is recorded in
-        metadata["flows"] (5-tuple plus open/close timestamps).
+        metadata["flows"] (5-tuple plus open/close timestamps), and reading
+        from one marks the task as having heard from the service. A client you
+        build yourself only contributes to either once you have passed it to
+        record_http_flows.
         """
         event_hooks: Optional[Dict[str, List[Callable[..., Any]]]] = (
             {"response": [_reject_down_ctfroute_upstream]}
@@ -1014,16 +1029,16 @@ class Enochecker:
 
         reader = conn[0]
         received_data = False
-        if _haproxy_mode_enabled():
-            orig_feed_data = reader.feed_data
+        orig_feed_data = reader.feed_data
 
-            def _feed_data(data: Iterable[SupportsIndex]) -> None:
-                nonlocal received_data
-                if data:
-                    received_data = True
-                orig_feed_data(data)
+        def _feed_data(data: Iterable[SupportsIndex]) -> None:
+            nonlocal received_data
+            if data:
+                received_data = True
+                metadata.received_upstream_data = True
+            orig_feed_data(data)
 
-            reader.feed_data = _feed_data  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        reader.feed_data = _feed_data  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         try:
             yield conn

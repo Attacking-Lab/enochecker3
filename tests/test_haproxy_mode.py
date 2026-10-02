@@ -149,6 +149,140 @@ async def test_injected_client_read_timeout_follows_task_timeout():
     assert captured[0].connect == 5.0
 
 
+# Long enough to outlive the short task budget below, short enough that
+# closing the server does not wait on the handler for any noticeable time.
+_HANG_S = 2.0
+
+
+def _short_havoc_task() -> HavocCheckerTaskMessage:
+    task = _havoc_task()
+    # 2.5s less TIMEOUT_BUFFER leaves the method half a second to run, so the
+    # timeout branch is reached without the test waiting on it.
+    task.timeout = 2500
+    return task
+
+
+async def _silent_server() -> asyncio.Server:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        await asyncio.sleep(_HANG_S)
+        writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+async def _trickle_then_hang_server() -> asyncio.Server:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        writer.write(b"HTTP/1.1 200 OK\r\n")
+        await writer.drain()
+        await asyncio.sleep(_HANG_S)
+        writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+async def _greet_then_hang_server() -> asyncio.Server:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        writer.write(b"hi\n")
+        await writer.drain()
+        await asyncio.sleep(_HANG_S)
+        writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_reports_offline_for_http_timeout_without_data(monkeypatch):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _silent_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(client: httpx.AsyncClient) -> None:
+            await client.get("/")
+
+        with pytest.raises(OfflineException):
+            await checker._call_havoc(_short_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_reports_mumble_for_http_timeout_after_data(monkeypatch):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _trickle_then_hang_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(client: httpx.AsyncClient) -> None:
+            await client.get("/")
+
+        with pytest.raises(MumbleException):
+            await checker._call_havoc(_short_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_http_timeout_without_data_is_mumble_when_haproxy_mode_disabled(
+    monkeypatch,
+):
+    monkeypatch.delenv("ENOCHECKER_HAPROXY_MODE", raising=False)
+    server = await _silent_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(client: httpx.AsyncClient) -> None:
+            await client.get("/")
+
+        with pytest.raises(MumbleException):
+            await checker._call_havoc(_short_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_reports_offline_for_socket_timeout_without_data(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _silent_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, _ = socket
+            await reader.readuntil(b"\n")
+
+        with pytest.raises(OfflineException):
+            await checker._call_havoc(_short_havoc_task())
+
+
+@pytest.mark.asyncio
+async def test_haproxy_mode_reports_mumble_for_socket_timeout_after_data(monkeypatch):
+    monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
+    server = await _greet_then_hang_server()
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
+
+        @checker.havoc(0)
+        async def havoc(socket: AsyncSocket) -> None:
+            reader, _ = socket
+            await reader.readuntil(b"\n")
+            await reader.readuntil(b"\n")
+
+        with pytest.raises(MumbleException):
+            await checker._call_havoc(_short_havoc_task())
+
+
 async def _closing_server() -> asyncio.Server:
     async def handle(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
