@@ -159,8 +159,22 @@ so this endpoint is yours to shape for your own infrastructure.
 
 ## Telemetry
 The checker supports OpenTelemetry, with this configuration:
-- Set the environment variable `OTEL_EXPORTER_OTLP_ENDPOINT` to the URL of your OpenTelemetry collector.
-- Set the environment variable `OTEL_EXPORTER_OTLP_HEADERS_AUTHORIZATION` to your authentication token.
+- Set the environment variable `OTEL_EXPORTER_OTLP_ENDPOINT` to the URL of your OpenTelemetry collector. This is the switch: unset, nothing is exported.
+- Set the environment variable `OTEL_EXPORTER_OTLP_HEADERS_AUTHORIZATION` to your authentication token. It is sent as the `authorization` header on every export.
+
+Traces and logs can go to different collectors over different transports,
+following the standard `OTEL_EXPORTER_OTLP_*` variables. The signal-specific
+name wins over the generic one:
+
+| Variable | Default |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (`http/protobuf` is the other) |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | the generic ones |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | the generic ones |
+
+An HTTP endpoint is used verbatim and so has to carry its signal path, for
+example `https://loki.example/otlp/v1/logs`. A gRPC endpoint is host and
+port; an `http://` scheme selects plaintext.
 
 ## Built-In Dependencies
 

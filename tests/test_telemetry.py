@@ -2,6 +2,7 @@ import httpx
 import pytest
 from opentelemetry.instrumentation.httpx import RequestInfo
 
+from enochecker3 import telemetry
 from enochecker3.telemetry import as_span_attribute, request_span_name
 
 
@@ -79,3 +80,43 @@ def test_request_span_name(method, url, expected):
     )
 
     assert request_span_name(request) == expected
+
+
+@pytest.mark.parametrize(
+    "env, expected",
+    [
+        ({"OTEL_EXPORTER_OTLP_ENDPOINT": "http://a:4317"}, ("http://a:4317", "grpc")),
+        (
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://a:4317",
+                "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "https://b/otlp/v1/logs",
+                "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+            },
+            ("https://b/otlp/v1/logs", "http/protobuf"),
+        ),
+        (
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://a:4317",
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+            },
+            ("http://a:4317", "http/protobuf"),
+        ),
+    ],
+)
+def test_otlp_target_logs(monkeypatch, env, expected):
+    for name in (
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert telemetry.otlp_target("LOGS") == expected
+
+
+def test_otlp_target_rejects_unknown_protocol(monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/json")
+    with pytest.raises(ValueError, match="http/json"):
+        telemetry.otlp_target("LOGS")

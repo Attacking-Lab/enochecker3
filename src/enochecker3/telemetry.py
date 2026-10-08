@@ -8,8 +8,18 @@ import httpx
 from opentelemetry import trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.context import Context
-from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+    OTLPLogExporter as GrpcLogExporter,
+)
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as GrpcSpanExporter,
+)
+from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+    OTLPLogExporter as HttpLogExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HttpSpanExporter,
+)
 from opentelemetry.instrumentation.httpx import RequestInfo, ResponseInfo
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs._internal.export import (  # type: ignore[attr-defined]
@@ -96,26 +106,76 @@ def _setup_tracing(resource: Resource, span_exporter: SpanExporter) -> None:
 
 _telemetry_initialized = False
 
+# The values the OpenTelemetry specification defines for
+# OTEL_EXPORTER_OTLP_PROTOCOL that the Python exporters offer; http/json is
+# not one of them.
+_OTLP_PROTOCOLS = ("grpc", "http/protobuf")
+
+
+def _span_exporter(
+    protocol: str, endpoint: Optional[str], headers: dict[str, str]
+) -> SpanExporter:
+    if protocol == "grpc":
+        return GrpcSpanExporter(endpoint=endpoint, headers=headers)
+    return HttpSpanExporter(endpoint=endpoint, headers=headers)
+
+
+def _log_exporter(
+    protocol: str, endpoint: Optional[str], headers: dict[str, str]
+) -> LogRecordExporter:
+    if protocol == "grpc":
+        return GrpcLogExporter(endpoint=endpoint, headers=headers)
+    return HttpLogExporter(endpoint=endpoint, headers=headers)
+
+
+def otlp_target(signal: str) -> tuple[Optional[str], str]:
+    """The endpoint and protocol one signal exports to, from the standard
+    OTEL_EXPORTER_OTLP_* variables: the signal-specific name wins over the
+    generic one, and the protocol defaults to gRPC.
+
+    Letting the two signals part ways is what allows a checker to send
+    traces to a collector that speaks gRPC only and logs to one that speaks
+    HTTP only. An HTTP endpoint is used verbatim, so it has to carry its
+    signal path (/v1/traces, /v1/logs); a gRPC one is host and port.
+    """
+    endpoint = os.environ.get(
+        f"OTEL_EXPORTER_OTLP_{signal}_ENDPOINT"
+    ) or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    protocol = (
+        os.environ.get(f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL")
+        or os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL")
+        or "grpc"
+    )
+    if protocol not in _OTLP_PROTOCOLS:
+        raise ValueError(
+            f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL {protocol!r} is not one of "
+            f"{list(_OTLP_PROTOCOLS)}"
+        )
+    return endpoint, protocol
+
 
 def setup_telemetry(component: str) -> None:
     global _telemetry_initialized
 
-    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    # The generic endpoint is the switch: without it nothing is exported, no
+    # matter what the signal-specific variables say.
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or _telemetry_initialized:
+        return
+
+    resource = Resource(attributes={SERVICE_NAME: component})
+
+    headers = {}
     otlp_key = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS_AUTHORIZATION", None)
+    if otlp_key:
+        headers["authorization"] = otlp_key
 
-    if otlp_endpoint and not _telemetry_initialized:
-        resource = Resource(attributes={SERVICE_NAME: component})
+    traces_endpoint, traces_protocol = otlp_target("TRACES")
+    _setup_tracing(resource, _span_exporter(traces_protocol, traces_endpoint, headers))
 
-        headers = {}
-        if otlp_key:
-            headers["authorization"] = otlp_key
+    logs_endpoint, logs_protocol = otlp_target("LOGS")
+    _setup_logging(resource, _log_exporter(logs_protocol, logs_endpoint, headers))
 
-        span_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, headers=headers)
-        _setup_tracing(resource, span_exporter)
-        log_exporter = OTLPLogExporter(endpoint=otlp_endpoint, headers=headers)
-        _setup_logging(resource, log_exporter)
-
-        _telemetry_initialized = True
+    _telemetry_initialized = True
 
 
 class CommonAttributesLogFilter(logging.Filter):
