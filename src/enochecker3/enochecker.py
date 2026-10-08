@@ -663,7 +663,11 @@ class Enochecker:
             mumble_exc = MumbleException("Closed to service closed abruptly")
             mumble_exc.metadata = metadata
             raise mumble_exc
-        except (TimeoutError, httpx.TimeoutException) as e:
+        # asyncio.TimeoutError only became an alias of the builtin in 3.11;
+        # on 3.10 it is a separate class, so wait_for's task-budget timeout
+        # needs its own entry or it falls through to the generic handler and
+        # is reported as an internal error.
+        except (TimeoutError, asyncio.TimeoutError, httpx.TimeoutException) as e:
             get_current_span().record_exception(e)
             trace = traceback.format_exc()
             logger = self._get_logger_adapter(task)
