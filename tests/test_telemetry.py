@@ -120,3 +120,14 @@ def test_otlp_target_rejects_unknown_protocol(monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/json")
     with pytest.raises(ValueError, match="http/json"):
         telemetry.otlp_target("LOGS")
+
+
+def test_resource_takes_env_attributes(monkeypatch):
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES", "k8s.cluster.name=c1,deployment.environment=prod"
+    )
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "ignored")
+    resource = telemetry.Resource.create({telemetry.SERVICE_NAME: "MyChecker"})
+    assert resource.attributes["k8s.cluster.name"] == "c1"
+    assert resource.attributes["deployment.environment"] == "prod"
+    assert resource.attributes[telemetry.SERVICE_NAME] == "MyChecker"

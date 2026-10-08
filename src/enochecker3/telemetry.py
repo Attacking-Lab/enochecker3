@@ -162,7 +162,10 @@ def setup_telemetry(component: str) -> None:
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or _telemetry_initialized:
         return
 
-    resource = Resource(attributes={SERVICE_NAME: component})
+    # create() and not the constructor: it merges OTEL_RESOURCE_ATTRIBUTES,
+    # which is how a deployment stamps where a checker runs onto every span
+    # and log record. The explicit service.name still wins.
+    resource = Resource.create({SERVICE_NAME: component})
 
     headers = {}
     otlp_key = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS_AUTHORIZATION", None)

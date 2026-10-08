@@ -172,6 +172,11 @@ name wins over the generic one:
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | the generic ones |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | the generic ones |
 
+`OTEL_RESOURCE_ATTRIBUTES` (for example
+`k8s.cluster.name=ecsc-2026,k8s.namespace.name=ecsc-2026-prod`) is
+merged into every span and log record; `service.name` is always the
+checker's own.
+
 An HTTP endpoint is used verbatim and so has to carry its signal path, for
 example `https://loki.example/otlp/v1/logs`. A gRPC endpoint is host and
 port; an `http://` scheme selects plaintext.
