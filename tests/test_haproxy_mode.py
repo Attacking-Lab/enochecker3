@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
@@ -24,7 +26,45 @@ def _havoc_task() -> HavocCheckerTaskMessage:
     )
 
 
-async def _http_server_with_upstream_header(value: str) -> asyncio.Server:
+_Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
+
+
+@asynccontextmanager
+async def _serving(handle: _Handler) -> AsyncIterator[int]:
+    """Serve `handle` on an ephemeral port, leaving no connection behind.
+
+    asyncio.Server.wait_closed() only awaits live connection handlers from
+    Python 3.12 on, so a handler still mid-sleep when a test ends keeps its
+    accepted socket alive and -W error turns the eventual ResourceWarning
+    into a failure in whichever later test the collection lands on.
+    Cancelling the handlers before wait_closed() also keeps teardown from
+    waiting out a deliberate hang on the versions that do await them.
+    """
+    connections: list[tuple[asyncio.Task[None], asyncio.StreamWriter]] = []
+
+    async def serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        connections.append((task, writer))
+        await handle(reader, writer)
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    try:
+        yield server.sockets[0].getsockname()[1]
+    finally:
+        for task, writer in connections:
+            task.cancel()
+            writer.close()
+        server.close()
+        await server.wait_closed()
+        await asyncio.gather(*(task for task, _ in connections), return_exceptions=True)
+        await asyncio.gather(
+            *(writer.wait_closed() for _, writer in connections),
+            return_exceptions=True,
+        )
+
+
+def _upstream_header_handler(value: str) -> _Handler:
     async def handle(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
@@ -36,15 +76,13 @@ async def _http_server_with_upstream_header(value: str) -> asyncio.Server:
         await writer.drain()
         writer.close()
 
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+    return handle
 
 
 @pytest.mark.asyncio
 async def test_haproxy_mode_reports_offline_for_down_upstream(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _http_server_with_upstream_header("down")
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_upstream_header_handler("down")) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -58,9 +96,7 @@ async def test_haproxy_mode_reports_offline_for_down_upstream(monkeypatch):
 @pytest.mark.asyncio
 async def test_haproxy_mode_allows_up_upstream(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _http_server_with_upstream_header("up")
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_upstream_header_handler("up")) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -76,9 +112,7 @@ async def test_haproxy_mode_allows_up_upstream(monkeypatch):
 @pytest.mark.asyncio
 async def test_down_upstream_ignored_when_haproxy_mode_disabled(monkeypatch):
     monkeypatch.delenv("ENOCHECKER_HAPROXY_MODE", raising=False)
-    server = await _http_server_with_upstream_header("down")
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_upstream_header_handler("down")) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -91,9 +125,7 @@ async def test_down_upstream_ignored_when_haproxy_mode_disabled(monkeypatch):
     assert result.result == CheckerTaskResult.OK
 
 
-async def _slow_http_server_with_upstream_header(
-    value: str, delay: float
-) -> asyncio.Server:
+def _slow_upstream_header_handler(value: str, delay: float) -> _Handler:
     async def handle(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
@@ -106,7 +138,7 @@ async def _slow_http_server_with_upstream_header(
         await writer.drain()
         writer.close()
 
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+    return handle
 
 
 @pytest.mark.asyncio
@@ -119,9 +151,7 @@ async def test_haproxy_mode_reports_offline_for_router_slower_than_httpx_default
     X-CTFROUTE-Upstream header arrives and report Mumble instead.
     """
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _slow_http_server_with_upstream_header("down", delay=5.5)
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_slow_upstream_header_handler("down", delay=5.5)) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -149,8 +179,7 @@ async def test_injected_client_read_timeout_follows_task_timeout():
     assert captured[0].connect == 5.0
 
 
-# Long enough to outlive the short task budget below, short enough that
-# closing the server does not wait on the handler for any noticeable time.
+# Long enough to outlive the short task budget below.
 _HANG_S = 2.0
 
 
@@ -162,46 +191,35 @@ def _short_havoc_task() -> HavocCheckerTaskMessage:
     return task
 
 
-async def _silent_server() -> asyncio.Server:
-    async def handle(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        await asyncio.sleep(_HANG_S)
-        writer.close()
-
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+async def _silent_handler(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    await asyncio.sleep(_HANG_S)
+    writer.close()
 
 
-async def _trickle_then_hang_server() -> asyncio.Server:
-    async def handle(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        writer.write(b"HTTP/1.1 200 OK\r\n")
-        await writer.drain()
-        await asyncio.sleep(_HANG_S)
-        writer.close()
-
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+async def _trickle_then_hang_handler(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    writer.write(b"HTTP/1.1 200 OK\r\n")
+    await writer.drain()
+    await asyncio.sleep(_HANG_S)
+    writer.close()
 
 
-async def _greet_then_hang_server() -> asyncio.Server:
-    async def handle(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        writer.write(b"hi\n")
-        await writer.drain()
-        await asyncio.sleep(_HANG_S)
-        writer.close()
-
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+async def _greet_then_hang_handler(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    writer.write(b"hi\n")
+    await writer.drain()
+    await asyncio.sleep(_HANG_S)
+    writer.close()
 
 
 @pytest.mark.asyncio
 async def test_haproxy_mode_reports_offline_for_http_timeout_without_data(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _silent_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_silent_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -215,9 +233,7 @@ async def test_haproxy_mode_reports_offline_for_http_timeout_without_data(monkey
 @pytest.mark.asyncio
 async def test_haproxy_mode_reports_mumble_for_http_timeout_after_data(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _trickle_then_hang_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_trickle_then_hang_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -233,9 +249,7 @@ async def test_http_timeout_without_data_is_mumble_when_haproxy_mode_disabled(
     monkeypatch,
 ):
     monkeypatch.delenv("ENOCHECKER_HAPROXY_MODE", raising=False)
-    server = await _silent_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_silent_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -251,9 +265,7 @@ async def test_haproxy_mode_reports_offline_for_socket_timeout_without_data(
     monkeypatch,
 ):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _silent_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_silent_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -268,9 +280,7 @@ async def test_haproxy_mode_reports_offline_for_socket_timeout_without_data(
 @pytest.mark.asyncio
 async def test_haproxy_mode_reports_mumble_for_socket_timeout_after_data(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _greet_then_hang_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_greet_then_hang_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -283,32 +293,24 @@ async def test_haproxy_mode_reports_mumble_for_socket_timeout_after_data(monkeyp
             await checker._call_havoc(_short_havoc_task())
 
 
-async def _closing_server() -> asyncio.Server:
-    async def handle(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        writer.close()
-
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+async def _closing_handler(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    writer.close()
 
 
-async def _greet_then_close_server() -> asyncio.Server:
-    async def handle(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        writer.write(b"hi\n")
-        await writer.drain()
-        writer.close()
-
-    return await asyncio.start_server(handle, "127.0.0.1", 0)
+async def _greet_then_close_handler(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    writer.write(b"hi\n")
+    await writer.drain()
+    writer.close()
 
 
 @pytest.mark.asyncio
 async def test_haproxy_mode_reports_offline_for_tcp_close_without_data(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _closing_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_closing_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -323,9 +325,7 @@ async def test_haproxy_mode_reports_offline_for_tcp_close_without_data(monkeypat
 @pytest.mark.asyncio
 async def test_haproxy_mode_keeps_mumble_for_tcp_close_after_data(monkeypatch):
     monkeypatch.setenv("ENOCHECKER_HAPROXY_MODE", "1")
-    server = await _greet_then_close_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_greet_then_close_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
@@ -345,9 +345,7 @@ async def test_tcp_close_without_data_stays_mumble_when_haproxy_mode_disabled(
     monkeypatch,
 ):
     monkeypatch.delenv("ENOCHECKER_HAPROXY_MODE", raising=False)
-    server = await _closing_server()
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+    async with _serving(_closing_handler) as port:
         checker = Enochecker("svc", port, mongo_client=MockAsyncMongoClient())
 
         @checker.havoc(0)
