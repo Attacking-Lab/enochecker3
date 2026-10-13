@@ -55,7 +55,7 @@ _ATTRIBUTE_SCALAR_TYPES = (bool, str, bytes, int, float)
 # collector accepts on one export, which costs the whole batch rather than the
 # oversized attribute. Every value is therefore cut to this many bytes.
 SPAN_ATTRIBUTE_LIMIT_ENV_VAR = "ENOCHECKER_SPAN_ATTRIBUTE_LIMIT"
-DEFAULT_SPAN_ATTRIBUTE_LIMIT = "4K"
+DEFAULT_SPAN_ATTRIBUTE_LIMIT = "256"
 
 
 def span_attribute_limit() -> int:

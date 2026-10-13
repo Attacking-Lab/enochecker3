@@ -183,15 +183,17 @@ with a `... <SNIP>` suffix:
 
 | Variable | Default |
 | --- | --- |
-| `ENOCHECKER_SPAN_ATTRIBUTE_LIMIT` | `4K`, with an optional `K`, `M`, `G` or `T` suffix; `0` lifts the bound |
+| `ENOCHECKER_SPAN_ATTRIBUTE_LIMIT` | `256`, with an optional `K`, `M`, `G` or `T` suffix; `0` lifts the bound |
 
-The default is a bound on noise for most checkers and a necessity for a few: a
-crypto service stores keys, ciphertexts and proofs in its `ChainDB`, each of
-which renders into hundreds of kilobytes, and a batch of such spans exceeds the
-message size a collector accepts on one export -- which costs the whole batch,
-not the oversized attribute. Raise it when a checker's values are worth keeping
-whole, and keep in mind that whatever stays is readable by everyone with access
-to the collector, secret keys included.
+The default keeps an attribute to a line or two of context rather than a
+payload, which is what a trace is useful for. It is a bound on noise for most
+checkers and a necessity for a few: a crypto service stores keys, ciphertexts
+and proofs in its `ChainDB`, each of which renders into hundreds of kilobytes,
+and a batch of such spans exceeds the message size a collector accepts on one
+export -- which costs the whole batch, not the oversized attribute. Raise it
+when a checker's values are worth keeping whole, and keep in mind that whatever
+stays is readable by everyone with access to the collector, secret keys
+included.
 
 `OTEL_RESOURCE_ATTRIBUTES` (for example
 `k8s.cluster.name=ecsc-2026,k8s.namespace.name=ecsc-2026-prod`) is
