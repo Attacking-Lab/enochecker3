@@ -16,7 +16,13 @@ from enochecker3 import (
     TaskMetadata,
     telemetry,
 )
-from enochecker3.telemetry import as_span_attribute, request_span_name
+from enochecker3.logging import SNIP_SUFFIX
+from enochecker3.telemetry import (
+    SPAN_ATTRIBUTE_LIMIT_ENV_VAR,
+    as_span_attribute,
+    request_span_name,
+    span_attribute_limit,
+)
 
 
 @pytest.mark.parametrize(
@@ -51,6 +57,81 @@ def test_as_span_attribute_unserializable():
     circular["self"] = circular
 
     assert as_span_attribute(circular) == repr(circular)
+
+
+@pytest.fixture(autouse=True)
+def default_attribute_limit(monkeypatch):
+    monkeypatch.delenv(SPAN_ATTRIBUTE_LIMIT_ENV_VAR, raising=False)
+
+
+def test_long_string_is_cut_to_the_limit():
+    limit = span_attribute_limit()
+    attribute = as_span_attribute("a" * (limit * 2))
+
+    assert len(attribute.encode()) == limit
+    assert attribute.endswith(SNIP_SUFFIX)
+
+
+def test_long_bytes_stay_bytes_and_decode():
+    limit = span_attribute_limit()
+    attribute = as_span_attribute(b"a" * (limit * 2))
+
+    assert isinstance(attribute, bytes)
+    assert len(attribute) == limit
+    assert attribute.decode().endswith(SNIP_SUFFIX)
+
+
+def test_cut_does_not_split_a_character():
+    limit = span_attribute_limit()
+    # The cut lands mid-character for every odd offset of a two-byte character.
+    attribute = as_span_attribute("\u00e4" * limit)
+
+    assert len(attribute.encode()) <= limit
+    attribute.encode().decode()
+
+
+def test_rendered_value_is_cut_to_the_limit():
+    """A ChainDB tuple of keys and proofs is what made this necessary."""
+    limit = span_attribute_limit()
+    attribute = as_span_attribute(("uid", b"\xff" * limit, "game", b"\xff" * limit))
+
+    assert len(attribute.encode()) == limit
+    assert attribute.endswith(SNIP_SUFFIX)
+
+
+def test_oversized_sequence_becomes_one_marked_string():
+    limit = span_attribute_limit()
+    attribute = as_span_attribute(["a" * limit, "b" * limit])
+
+    assert isinstance(attribute, str)
+    assert len(attribute.encode()) == limit
+    assert attribute.endswith(SNIP_SUFFIX)
+
+
+def test_sequence_within_the_limit_stays_a_sequence():
+    assert as_span_attribute(["a", "b"]) == ["a", "b"]
+
+
+@pytest.mark.parametrize("limit,expected", [("1K", 1024), ("64", 64), ("1M", 1048576)])
+def test_limit_is_overridable(monkeypatch, limit, expected):
+    monkeypatch.setenv(SPAN_ATTRIBUTE_LIMIT_ENV_VAR, limit)
+
+    assert span_attribute_limit() == expected
+    assert len(as_span_attribute("a" * (expected * 2)).encode()) == expected
+
+
+def test_zero_lifts_the_limit(monkeypatch):
+    monkeypatch.setenv(SPAN_ATTRIBUTE_LIMIT_ENV_VAR, "0")
+    value = "a" * (span_attribute_limit() + 100_000)
+
+    assert as_span_attribute(value) == value
+
+
+def test_malformed_limit_fails_at_startup(monkeypatch):
+    monkeypatch.setenv(SPAN_ATTRIBUTE_LIMIT_ENV_VAR, "lots")
+
+    with pytest.raises(ValueError, match="lots"):
+        telemetry.setup_telemetry("MyChecker")
 
 
 @pytest.mark.parametrize(

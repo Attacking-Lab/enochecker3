@@ -42,10 +42,52 @@ from opentelemetry.trace import Span, SpanKind, Tracer, _Links
 from opentelemetry.util import types
 from opentelemetry.util._decorator import _agnosticcontextmanager
 
+from enochecker3.logging import SNIP_SUFFIX, parse_size
 from enochecker3.telemetry_attributes import OpenTelemetryCommonAttributesContext
 
 
 _ATTRIBUTE_SCALAR_TYPES = (bool, str, bytes, int, float)
+
+# The size of an attribute carrying a checker's own data -- a ChainDB value, a
+# piece of task metadata -- is whatever the checker put there, and a crypto
+# service puts keys, ciphertexts and proofs there. Rendered onto a span those
+# reach hundreds of kilobytes each, and a batch of them exceeds what a
+# collector accepts on one export, which costs the whole batch rather than the
+# oversized attribute. Every value is therefore cut to this many bytes.
+SPAN_ATTRIBUTE_LIMIT_ENV_VAR = "ENOCHECKER_SPAN_ATTRIBUTE_LIMIT"
+DEFAULT_SPAN_ATTRIBUTE_LIMIT = "4K"
+
+
+def span_attribute_limit() -> int:
+    """The byte bound on one span attribute value; `0` lifts it."""
+    return parse_size(
+        os.environ.get(SPAN_ATTRIBUTE_LIMIT_ENV_VAR) or DEFAULT_SPAN_ATTRIBUTE_LIMIT
+    )
+
+
+def _attribute_size(value: Any) -> int:
+    if isinstance(value, bytes):
+        return len(value)
+    if isinstance(value, str):
+        return len(value.encode())
+    return len(str(value).encode())
+
+
+def _truncate_str(value: str, limit: int) -> str:
+    keep = limit - len(SNIP_SUFFIX)
+    if keep <= 0:
+        return value.encode()[:limit].decode("utf-8", errors="ignore")
+    return value.encode()[:keep].decode("utf-8", errors="ignore") + SNIP_SUFFIX
+
+
+def _truncate_bytes(value: bytes, limit: int) -> bytes:
+    suffix = SNIP_SUFFIX.encode()
+    keep = limit - len(suffix)
+    if keep <= 0:
+        return value[:limit]
+    # The round trip drops a character the cut split in half, which otel would
+    # otherwise fail to decode.
+    return value[:keep].decode("utf-8", errors="ignore").encode() + suffix
 
 
 def _is_attribute_scalar(value: Any) -> bool:
@@ -65,19 +107,34 @@ def as_span_attribute(value: Any) -> types.AttributeValue:
     Otel takes only scalars and homogeneous sequences of them, and drops
     anything else with a warning on the `opentelemetry.attributes` logger.
     Values it would reject are rendered as JSON instead of turning into noise.
+
+    Anything longer than `span_attribute_limit()` is cut to it and marked with
+    a `... <SNIP>` suffix. A sequence cannot carry that marker without breaking
+    the element type otel requires it to keep, so an oversized one is rendered
+    as a single marked string instead.
     """
+    limit = span_attribute_limit()
     if _is_attribute_scalar(value):
+        if limit and _attribute_size(value) > limit:
+            if isinstance(value, bytes):
+                return _truncate_bytes(value, limit)
+            return _truncate_str(cast(str, value), limit)
         return cast(types.AttributeValue, value)
     if isinstance(value, (list, tuple)):
         element_types = {type(e) for e in value if e is not None}
-        if len(element_types) <= 1 and all(
-            e is None or _is_attribute_scalar(e) for e in value
+        if (
+            len(element_types) <= 1
+            and all(e is None or _is_attribute_scalar(e) for e in value)
+            and not (limit and sum(_attribute_size(e) for e in value) > limit)
         ):
             return cast(types.AttributeValue, list(value))
     try:
-        return json.dumps(value, default=repr)
+        rendered = json.dumps(value, default=repr)
     except (TypeError, ValueError):
-        return repr(value)
+        rendered = repr(value)
+    if limit and _attribute_size(rendered) > limit:
+        return _truncate_str(rendered, limit)
+    return rendered
 
 
 def _setup_logging(resource: Resource, log_exporter: LogRecordExporter) -> None:
@@ -158,6 +215,11 @@ def otlp_target(signal: str) -> tuple[Optional[str], str]:
 
 def setup_telemetry(component: str) -> None:
     global _telemetry_initialized
+
+    # Resolved before the switch below, and discarded: attributes are cut
+    # whether or not anything is exported, so a malformed bound has to fail the
+    # checker at startup rather than inside the first task that records one.
+    span_attribute_limit()
 
     # The generic endpoint is the switch: without it nothing is exported, no
     # matter what the signal-specific variables say.

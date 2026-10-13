@@ -177,6 +177,22 @@ Whatever a task writes into its `TaskMetadata` bag is attached to its span as
 `enochecker.result`. A task that ended in a Mumble, Offline or internal error
 carries its metadata too, so the trace explains the verdict on its own.
 
+Every span attribute holding a checker's own data -- a `TaskMetadata` value, a
+`ChainDB` value -- is cut to `ENOCHECKER_SPAN_ATTRIBUTE_LIMIT` bytes and marked
+with a `... <SNIP>` suffix:
+
+| Variable | Default |
+| --- | --- |
+| `ENOCHECKER_SPAN_ATTRIBUTE_LIMIT` | `4K`, with an optional `K`, `M`, `G` or `T` suffix; `0` lifts the bound |
+
+The default is a bound on noise for most checkers and a necessity for a few: a
+crypto service stores keys, ciphertexts and proofs in its `ChainDB`, each of
+which renders into hundreds of kilobytes, and a batch of such spans exceeds the
+message size a collector accepts on one export -- which costs the whole batch,
+not the oversized attribute. Raise it when a checker's values are worth keeping
+whole, and keep in mind that whatever stays is readable by everyone with access
+to the collector, secret keys included.
+
 `OTEL_RESOURCE_ATTRIBUTES` (for example
 `k8s.cluster.name=ecsc-2026,k8s.namespace.name=ecsc-2026-prod`) is
 merged into every span and log record; `service.name` is always the
