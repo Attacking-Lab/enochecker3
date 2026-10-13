@@ -233,8 +233,12 @@ The checker refuses to start when the log directory cannot be created, or when
 more processes log into one directory than the worker count accounts for, since
 neither can honour the budget. `ENOCHECKER_DROP_LOG_OVERRUN` turns both into a
 warning on stderr and keeps serving without file logging. A malformed or too
-small budget stays fatal either way. Workers have to be forked after the
-checker is constructed, so `gunicorn --preload` is rejected outright.
+small budget stays fatal either way.
+
+A slot is claimed when the server starts a worker, not when the checker is
+constructed, so `gunicorn --preload` and `preload_app = True` are fine: the
+workers are forked off the master before any of them has a log file, and each
+then takes a slot of its own.
 
 Every line carries the full task context, which is what makes a single round or
 flag chain greppable:

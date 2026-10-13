@@ -344,18 +344,6 @@ class Enochecker:
         self._logger.addHandler(handler)
         self._logger.setLevel(logging.INFO)
 
-        if log_dir := os.getenv(LOG_DIR_ENV_VAR):
-            try:
-                self._enable_file_logging(log_dir)
-            except OSError as e:
-                # A malformed budget or worker count stays fatal, only a log
-                # directory the environment will not give us is survivable.
-                if not os.getenv(DROP_LOG_OVERRUN_ENV_VAR):
-                    raise
-                sys.stderr.write(
-                    "dropping file logging, {} is unusable: {}\n".format(log_dir, e)
-                )
-
         if __name__ == "uvicorn":
             self._logger.setLevel(
                 logging.getLogger("uvicorn.access").getEffectiveLevel()
@@ -434,6 +422,11 @@ class Enochecker:
     @contextlib.asynccontextmanager
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
         setup_telemetry(self.checker_name)
+        # Here and not in __init__, because gunicorn --preload and
+        # preload_app build the checker in the master: the workers would
+        # inherit one handler on one slot and rotate each other's files. A
+        # lifespan runs once per worker, after the fork.
+        self._setup_file_logging()
         await self._init()
         yield
 
@@ -1045,6 +1038,22 @@ class Enochecker:
         _ = task
         return self._mongodb
 
+    def _setup_file_logging(self) -> None:
+        log_dir = os.getenv(LOG_DIR_ENV_VAR)
+        if not log_dir:
+            return
+
+        try:
+            self._enable_file_logging(log_dir)
+        except OSError as e:
+            # A malformed budget or worker count stays fatal, only a log
+            # directory the environment will not give us is survivable.
+            if not os.getenv(DROP_LOG_OVERRUN_ENV_VAR):
+                raise
+            sys.stderr.write(
+                "dropping file logging, {} is unusable: {}\n".format(log_dir, e)
+            )
+
     def _enable_file_logging(self, log_dir: str) -> None:
         handler = self._create_file_handler(log_dir)
         handler.setLevel(logging.DEBUG)
@@ -1060,13 +1069,6 @@ class Enochecker:
         self._logger.setLevel(logging.DEBUG)
 
     def _create_file_handler(self, log_dir: str) -> logging.Handler:
-        if "--preload" in sys.argv:
-            raise ValueError(
-                "file logging is incompatible with gunicorn --preload, because"
-                " the workers would inherit one handler and write to the same"
-                " file without coordinating their rotations"
-            )
-
         os.makedirs(log_dir, exist_ok=True)
 
         # The budget covers the whole checker, which is served by one process

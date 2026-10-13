@@ -33,6 +33,17 @@ def _task(**kwargs) -> PutflagCheckerTaskMessage:
     )
 
 
+def _checker(*args, **kwargs) -> Enochecker:
+    """An Enochecker with its file logging set up, as the lifespan does it.
+
+    The setup lives there rather than in the constructor so that a worker
+    forked off a preloaded master gets a slot of its own.
+    """
+    checker = Enochecker(*args, **kwargs)
+    checker._setup_file_logging()
+    return checker
+
+
 def _file_handler(checker: Enochecker) -> logging.handlers.RotatingFileHandler:
     return next(
         h
@@ -67,7 +78,7 @@ def test_file_handler_writes_queryable_lines(tmp_path, monkeypatch):
     monkeypatch.setenv("ENOCHECKER_LOG_BUDGET", "64K")
     monkeypatch.setenv("ENOCHECKER_LOG_WORKERS", "1")
 
-    checker = Enochecker("Test", 1234)
+    checker = _checker("Test", 1234)
     logger = checker._get_logger_adapter(_task())
     for i in range(200):
         logger.debug("filler %d %s", i, "x" * 100)
@@ -134,7 +145,7 @@ def test_budget_is_split_between_workers(tmp_path, monkeypatch):
     monkeypatch.setenv("ENOCHECKER_LOG_BUDGET", "1M")
     monkeypatch.setenv("ENOCHECKER_LOG_WORKERS", "2")
 
-    checker = Enochecker("Test", 1234)
+    checker = _checker("Test", 1234)
     handler = _file_handler(checker)
     assert handler.maxBytes == 1024 * 1024 // (2 * 4)
     assert handler.backupCount == 3
@@ -145,7 +156,7 @@ def test_budget_holds_for_oversized_and_multibyte_records(tmp_path, monkeypatch)
     monkeypatch.setenv("ENOCHECKER_LOG_BUDGET", "64K")
     monkeypatch.setenv("ENOCHECKER_LOG_WORKERS", "1")
 
-    checker = Enochecker("Test", 1234)
+    checker = _checker("Test", 1234)
     logger = checker._get_logger_adapter(_task())
 
     # a single record far above the per file size, and one whose characters are
@@ -175,7 +186,7 @@ def test_slots_are_reused_across_restarts(tmp_path, monkeypatch):
 
     paths = set()
     for _ in range(3):
-        checker = Enochecker("Test", 1234)
+        checker = _checker("Test", 1234)
         paths.add(_file_handler(checker).baseFilename)
         _file_handler(checker).close()
 
@@ -189,7 +200,7 @@ def test_budget_below_the_minimum_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("ENOCHECKER_LOG_WORKERS", "1")
 
     with pytest.raises(ValueError, match="too small"):
-        Enochecker("Test", 1234)
+        _checker("Test", 1234)
 
 
 def test_unusable_log_dir_is_fatal(tmp_path, monkeypatch):
@@ -201,10 +212,10 @@ def test_unusable_log_dir_is_fatal(tmp_path, monkeypatch):
     monkeypatch.delenv("ENOCHECKER_DROP_LOG_OVERRUN", raising=False)
 
     with pytest.raises(OSError):
-        Enochecker("Test", 1234)
+        _checker("Test", 1234)
 
     monkeypatch.setenv("ENOCHECKER_DROP_LOG_OVERRUN", "1")
-    checker = Enochecker("Test", 1234)
+    checker = _checker("Test", 1234)
     with pytest.raises(StopIteration):
         _file_handler(checker)
 
@@ -215,4 +226,60 @@ def test_malformed_budget_stays_fatal(tmp_path, monkeypatch):
     monkeypatch.setenv("ENOCHECKER_LOG_BUDGET", "plenty")
 
     with pytest.raises(ValueError):
-        Enochecker("Test", 1234)
+        _checker("Test", 1234)
+
+
+def test_preloaded_workers_each_get_their_own_slot(tmp_path, monkeypatch):
+    # The shape gunicorn preload_app produces: one checker built in the
+    # master, the workers forked off it. Each has to claim a slot of its own,
+    # or they rotate each other's files.
+    monkeypatch.setenv("ENOCHECKER_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("ENOCHECKER_LOG_BUDGET", "1M")
+    monkeypatch.setenv("ENOCHECKER_LOG_WORKERS", "3")
+
+    checker = Enochecker("Test", 1234)
+    with pytest.raises(StopIteration):
+        _file_handler(checker)
+
+    claimed_read, claimed_write = os.pipe()
+    # A slot is a lock held for the lifetime of the process, so a worker that
+    # exited would hand its own slot to the next one and hide a collision.
+    # None of them leaves before every one of them has claimed.
+    gate_read, gate_write = os.pipe()
+    children = []
+    for worker in range(3):
+        pid = os.fork()
+        if pid == 0:
+            os.close(claimed_read)
+            os.close(gate_write)
+            code = 0
+            try:
+                checker._setup_file_logging()
+                path = _file_handler(checker).baseFilename
+                os.write(claimed_write, (path + "\n").encode())
+                checker._get_logger_adapter(_task()).debug("worker %d", worker)
+                os.read(gate_read, 1)
+            except BaseException:
+                code = 1
+            finally:
+                os._exit(code)
+        children.append(pid)
+    os.close(claimed_write)
+    os.close(gate_read)
+
+    paths = set()
+    with os.fdopen(claimed_read) as pipe:
+        for _ in children:
+            paths.add(pipe.readline().strip())
+        os.close(gate_write)
+        for pid in children:
+            assert os.waitpid(pid, 0)[1] == 0
+
+    assert len(paths) == 3
+    messages = [
+        json.loads(line)["message"]
+        for path in sorted(paths)
+        for line in Path(path).read_text().splitlines()
+        if line
+    ]
+    assert sorted(messages) == ["worker 0", "worker 1", "worker 2"]
