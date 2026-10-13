@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
 import logging
+import logging.handlers
 import os
+import re
 import sys
 import time
 import traceback
@@ -45,6 +47,14 @@ from enochecker3.telemetry import (
     CommonAttributesTracer,
     instrument_httpx_without_propagation,
     setup_telemetry,
+)
+from enochecker3.logging import (
+    BudgetFileHandler,
+    CheckerStreamHandler,
+    JsonFormatter,
+    OwnedHandler,
+    claim_log_slot,
+    parse_size,
 )
 from enochecker3.telemetry_attributes import telemetry_attributes
 from enochecker3.utils import FlagSearcher
@@ -98,6 +108,26 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 # failing fast is the whole point.
 MONGO_HEALTH_PROBE_TIMEOUT_S = 2.0
 
+# Writes every log message, down to DEBUG, to size capped JSON lines files, so
+# that a task can be investigated locally without raising the level of what the
+# stdout and OTLP sinks carry.
+LOG_DIR_ENV_VAR = "ENOCHECKER_LOG_DIR"
+LOG_BUDGET_ENV_VAR = "ENOCHECKER_LOG_BUDGET"
+LOG_WORKERS_ENV_VAR = "ENOCHECKER_LOG_WORKERS"
+DROP_LOG_OVERRUN_ENV_VAR = "ENOCHECKER_DROP_LOG_OVERRUN"
+
+DEFAULT_LOG_BUDGET = "1G"
+
+# The budget of a worker is spread over this many rotating files, so a rotation
+# evicts a fraction of its logs instead of all but the newest lines.
+LOG_FILE_COUNT = 4
+
+# A record carries the full task context, so a file that cannot hold several
+# kilobytes would spend its whole budget on a single truncated message.
+MIN_LOG_FILE_SIZE = 8 * 1024
+
+WORKER_ARG_PATTERN = re.compile(r"^(?:-w|--workers)=?([0-9]+)?$")
+
 # httpx's own default, kept for the connect/write/pool phases of the injected
 # client so only the read phase follows the task timeout.
 DEFAULT_HTTP_TIMEOUT_S = 5.0
@@ -109,6 +139,33 @@ def _health_body(
     return CheckerHealthMessage(status=status, detail=detail).model_dump(
         mode="json", exclude_none=True
     )
+
+
+def _read_worker_count(name: str) -> int:
+    value = os.environ[name]
+    if not value.isdigit() or int(value) < 1:
+        raise ValueError("invalid worker count {!r} in {}".format(value, name))
+    return int(value)
+
+
+def resolve_worker_count() -> int:
+    for name in (LOG_WORKERS_ENV_VAR, "WEB_CONCURRENCY"):
+        if os.getenv(name):
+            return _read_worker_count(name)
+
+    # gunicorn and uvicorn fork their workers off the server process, so an
+    # explicit worker count on its command line is still visible from inside a
+    # worker even when WEB_CONCURRENCY is unset.
+    args: List[str] = sys.argv[1:]
+    for i, arg in enumerate(args):
+        match = WORKER_ARG_PATTERN.match(arg)
+        if not match:
+            continue
+        value: str = match.group(1) or (args[i + 1] if i + 1 < len(args) else "")
+        if value.isdigit() and int(value) >= 1:
+            return int(value)
+
+    return 1
 
 
 def _haproxy_mode_enabled() -> bool:
@@ -255,14 +312,35 @@ class Enochecker:
         self._logger: logging.Logger = logging.getLogger()
         self._logger.addFilter(CommonAttributesLogFilter())
 
-        handler = logging.StreamHandler(sys.stdout)
+        handler = CheckerStreamHandler(sys.stdout)
         # if os.getenv("LOG_FORMAT") == "DEBUG":
         #    handler.setFormatter(DebugFormatter("%(message)s"))
         # else:
         #    handler.setFormatter(ELKFormatter("%(message)s"))
 
+        # The logger is the root logger, so a second Enochecker in the same
+        # process would otherwise stack a second set of handlers and emit every
+        # line twice. Only the handlers installed here are discarded, the ones
+        # telemetry and the server attach are left alone.
+        for stale in self._logger.handlers[:]:
+            if isinstance(stale, OwnedHandler):
+                self._logger.removeHandler(stale)
+                stale.close()
+
         self._logger.addHandler(handler)
         self._logger.setLevel(logging.INFO)
+
+        if log_dir := os.getenv(LOG_DIR_ENV_VAR):
+            try:
+                self._enable_file_logging(log_dir)
+            except OSError as e:
+                # A malformed budget or worker count stays fatal, only a log
+                # directory the environment will not give us is survivable.
+                if not os.getenv(DROP_LOG_OVERRUN_ENV_VAR):
+                    raise
+                sys.stderr.write(
+                    "dropping file logging, {} is unusable: {}\n".format(log_dir, e)
+                )
 
         if __name__ == "uvicorn":
             self._logger.setLevel(
@@ -952,6 +1030,69 @@ class Enochecker:
         """
         _ = task
         return self._mongodb
+
+    def _enable_file_logging(self, log_dir: str) -> None:
+        handler = self._create_file_handler(log_dir)
+        handler.setLevel(logging.DEBUG)
+
+        # Only the file sink takes DEBUG records, but the logger has to pass
+        # them for it to see them at all. Pinning every other sink to the level
+        # the logger used to gate leaves the stdout and OTLP output unchanged.
+        for other in self._logger.handlers:
+            if other.level == logging.NOTSET:
+                other.setLevel(self._logger.level)
+
+        self._logger.addHandler(handler)
+        self._logger.setLevel(logging.DEBUG)
+
+    def _create_file_handler(self, log_dir: str) -> logging.Handler:
+        if "--preload" in sys.argv:
+            raise ValueError(
+                "file logging is incompatible with gunicorn --preload, because"
+                " the workers would inherit one handler and write to the same"
+                " file without coordinating their rotations"
+            )
+
+        os.makedirs(log_dir, exist_ok=True)
+
+        # The budget covers the whole checker, which is served by one process
+        # per worker, each of them writing its own set of files.
+        workers = resolve_worker_count()
+        file_size = parse_size(os.getenv(LOG_BUDGET_ENV_VAR) or DEFAULT_LOG_BUDGET) // (
+            workers * LOG_FILE_COUNT
+        )
+        if file_size < MIN_LOG_FILE_SIZE:
+            raise ValueError(
+                "{} is too small, {} workers need at least {} bytes".format(
+                    LOG_BUDGET_ENV_VAR,
+                    workers,
+                    workers * LOG_FILE_COUNT * MIN_LOG_FILE_SIZE,
+                )
+            )
+
+        # One file set per slot rather than per process, so that the budget also
+        # holds across restarts, and so that the gunicorn workers sharing a log
+        # directory never rotate each other's files out from under an open fd.
+        slot = claim_log_slot(log_dir, self.checker_name, workers)
+        if slot is None:
+            raise OSError(
+                "no free log slot in {}, more processes are logging than the"
+                " {} workers the budget is split between".format(log_dir, workers)
+            )
+
+        # A record has to fit into an empty file, which never rotates, for the
+        # budget to be an upper bound rather than a target.
+        formatter = JsonFormatter("%(message)s")
+        formatter.max_record_size = file_size - len("\n")
+
+        handler = BudgetFileHandler(
+            os.path.join(log_dir, "{}.{}.jsonl".format(self.checker_name, slot)),
+            maxBytes=file_size,
+            backupCount=LOG_FILE_COUNT - 1,
+            encoding="utf-8",
+        )
+        handler.setFormatter(formatter)
+        return handler
 
     def _get_flag_searcher(self, task: ExploitCheckerTaskMessage) -> FlagSearcher:
         """

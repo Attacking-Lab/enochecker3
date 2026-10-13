@@ -181,6 +181,53 @@ An HTTP endpoint is used verbatim and so has to carry its signal path, for
 example `https://loki.example/otlp/v1/logs`. A gRPC endpoint is host and
 port; an `http://` scheme selects plaintext.
 
+## Local Debug Logs
+Setting `ENOCHECKER_LOG_DIR` writes every log message, down to `DEBUG`, to
+size capped JSON lines files in that directory. Only this sink takes `DEBUG`
+records; stdout and the OTLP export keep carrying `INFO` and above, so turning
+it on does not change what leaves the machine.
+
+| Variable | Default |
+| --- | --- |
+| `ENOCHECKER_LOG_DIR` | unset, which disables file logging |
+| `ENOCHECKER_LOG_BUDGET` | `1G`, an upper bound on the disk used by the whole checker, with an optional `K`, `M`, `G` or `T` suffix |
+| `ENOCHECKER_LOG_WORKERS` | inferred from `WEB_CONCURRENCY`, else a `-w`/`--workers` argument, else `1` |
+| `ENOCHECKER_DROP_LOG_OVERRUN` | unset, which makes an unusable log directory fatal instead of degrading to stdout only |
+
+The budget is an upper bound, not a target. Each worker gets `budget / workers`
+and spreads its share over four rotating files, so the directory holds
+`workers * 4` files of `budget / (workers * 4)` bytes and never more. Workers
+claim slots with byte range locks on an empty `<CheckerName>.slots` file, which
+keeps the file set identical across restarts rather than growing by a set per
+process lifetime.
+
+New messages are never refused to stay inside the budget; the oldest of a
+worker's four files is dropped instead. A message too large for one file is
+truncated with a `... <SNIP>` marker, and the budget has to leave each file
+8 KB, so it must be at least `workers * 32 KB`.
+
+The checker refuses to start when the log directory cannot be created, or when
+more processes log into one directory than the worker count accounts for, since
+neither can honour the budget. `ENOCHECKER_DROP_LOG_OVERRUN` turns both into a
+warning on stderr and keeps serving without file logging. A malformed or too
+small budget stays fatal either way. Workers have to be forked after the
+checker is constructed, so `gunicorn --preload` is rejected outright.
+
+Every line carries the full task context, which is what makes a single round or
+flag chain greppable:
+```
+cat logs/*.jsonl* | jq -c 'select(.currentRoundId == 42)'
+cat logs/*.jsonl* | jq -c 'select(.taskChainId == "flag_s1_r42_t3_i0")'
+cat logs/*.jsonl* | jq -r 'select(.taskId == 1337) | "\(.timestamp) \(.severity) \(.message)"'
+```
+
+If the volume runs out of space, the affected messages are dropped with a
+traceback on stderr. Tasks keep succeeding, the other sinks are unaffected, the
+files already written stay valid, and logging resumes once space is freed.
+
+The logs contain flags, so the directory needs the same protection as the flags
+themselves.
+
 ## Built-In Dependencies
 
 See [docs/builtin_dependencies.md](docs/builtin_dependencies.md)

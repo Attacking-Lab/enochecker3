@@ -89,7 +89,9 @@ def _setup_logging(resource: Resource, log_exporter: LogRecordExporter) -> None:
     provider.add_log_record_processor(processor)
     set_logger_provider(provider)
     logging.root.addFilter(CommonAttributesLogFilter())
-    handler = LoggingHandler(level=logging.DEBUG, logger_provider=provider)
+    # INFO rather than DEBUG because file logging raises the root logger to
+    # DEBUG, and those records are meant for the local files, not for export.
+    handler = LoggingHandler(level=logging.INFO, logger_provider=provider)
     handler.addFilter(DropOtelErrorsLogFilter())
     logging.root.addHandler(handler)
 
