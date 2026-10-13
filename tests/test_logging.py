@@ -193,8 +193,10 @@ def test_budget_below_the_minimum_is_rejected(tmp_path, monkeypatch):
 
 
 def test_unusable_log_dir_is_fatal(tmp_path, monkeypatch):
+    # A path whose parent is a file rather than an unreadable directory: root
+    # bypasses directory permissions, and the tests run as root in CI.
     blocked = tmp_path / "blocked"
-    blocked.mkdir(mode=0o500)
+    blocked.write_text("not a directory")
     monkeypatch.setenv("ENOCHECKER_LOG_DIR", str(blocked / "logs"))
     monkeypatch.delenv("ENOCHECKER_DROP_LOG_OVERRUN", raising=False)
 
