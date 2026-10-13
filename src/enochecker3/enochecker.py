@@ -19,6 +19,7 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Mapping,
     Optional,
     Set,
     SupportsIndex,
@@ -36,7 +37,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
 from opentelemetry.instrumentation.utils import suppress_instrumentation
-from opentelemetry.trace import StatusCode, get_current_span
+from opentelemetry.trace import Span, StatusCode, get_current_span
 from pydantic import ValidationError
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
@@ -45,6 +46,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from enochecker3.telemetry import (
     CommonAttributesLogFilter,
     CommonAttributesTracer,
+    as_span_attribute,
     instrument_httpx_without_propagation,
     setup_telemetry,
 )
@@ -166,6 +168,18 @@ def resolve_worker_count() -> int:
             return int(value)
 
     return 1
+
+
+def _record_result_metadata(span: Span, metadata: Optional[Mapping[str, Any]]) -> None:
+    # The metadata a task collects is what explains its result, so it belongs on
+    # the span next to that result rather than only in the engine's reply.
+    if not metadata:
+        return
+
+    for key, value in metadata.items():
+        span.set_attribute(
+            "enochecker.result.metadata.{}".format(key), as_span_attribute(value)
+        )
 
 
 def _haproxy_mode_enabled() -> bool:
@@ -1379,8 +1393,7 @@ class Enochecker:
 
             return _health_body(CheckerHealthStatus.OK) if result is None else result
 
-        @app.post("/", response_model=CheckerResultMessage)
-        async def checker(task: CheckerTaskMessage) -> CheckerResultMessage:
+        async def run_task(task: CheckerTaskMessage) -> CheckerResultMessage:
             attributes = {
                 "enochecker.task.task_id": task.task_id,
                 "enochecker.task.method": str(task.method),
@@ -1497,6 +1510,15 @@ class Enochecker:
                         result=CheckerTaskResult.INTERNAL_ERROR,
                         message=f"Malformed task for method {task.method}",
                     )
+
+        @app.post("/", response_model=CheckerResultMessage)
+        async def checker(task: CheckerTaskMessage) -> CheckerResultMessage:
+            result = await run_task(task)
+            # Outside run_task so that the metadata of a task that ended in an
+            # exception lands on the span too, the result message being the one
+            # place every exit path funnels through.
+            _record_result_metadata(get_current_span(), result.metadata)
+            return result
 
         FastAPIInstrumentor().instrument_app(app, excluded_urls="/health")
 

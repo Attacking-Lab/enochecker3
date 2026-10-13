@@ -172,6 +172,11 @@ name wins over the generic one:
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | the generic ones |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | the generic ones |
 
+Whatever a task writes into its `TaskMetadata` bag is attached to its span as
+`enochecker.result.metadata.<key>` once the task ends, alongside
+`enochecker.result`. A task that ended in a Mumble, Offline or internal error
+carries its metadata too, so the trace explains the verdict on its own.
+
 `OTEL_RESOURCE_ATTRIBUTES` (for example
 `k8s.cluster.name=ecsc-2026,k8s.namespace.name=ecsc-2026-prod`) is
 merged into every span and log record; `service.name` is always the

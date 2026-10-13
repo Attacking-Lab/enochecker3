@@ -1,8 +1,21 @@
 import httpx
 import pytest
+from fastapi.testclient import TestClient
+from opentelemetry import trace
 from opentelemetry.instrumentation.httpx import RequestInfo
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from enochecker3 import telemetry
+from enochecker3 import (
+    Enochecker,
+    InternalErrorException,
+    MumbleException,
+    OfflineException,
+    PutflagCheckerTaskMessage,
+    TaskMetadata,
+    telemetry,
+)
 from enochecker3.telemetry import as_span_attribute, request_span_name
 
 
@@ -131,3 +144,94 @@ def test_resource_takes_env_attributes(monkeypatch):
     assert resource.attributes["k8s.cluster.name"] == "c1"
     assert resource.attributes["deployment.environment"] == "prod"
     assert resource.attributes[telemetry.SERVICE_NAME] == "MyChecker"
+
+
+@pytest.fixture
+def recorded_spans(monkeypatch):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    # set_tracer_provider() is process-global and one-shot, so patch the lookup
+    # the fastapi instrumentation performs when the app is built
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
+    yield exporter
+    provider.shutdown()
+
+
+def _task_payload():
+    return PutflagCheckerTaskMessage(
+        task_id=0,
+        address="127.0.0.1",
+        team_id=0,
+        team_name="team_name",
+        current_round_id=0,
+        related_round_id=0,
+        variant_id=0,
+        timeout=15000,
+        round_length=60000,
+        task_chain_id="task_chain_id",
+        flag="test",
+    ).model_dump()
+
+
+def _span_attributes(recorded_spans):
+    attributes = {}
+    for span in recorded_spans.get_finished_spans():
+        attributes.update(span.attributes or {})
+    return attributes
+
+
+@pytest.mark.parametrize(
+    "raised,expected_result",
+    [
+        (None, "OK"),
+        (MumbleException("broken"), "MUMBLE"),
+        (OfflineException("gone"), "OFFLINE"),
+        (InternalErrorException("boom"), "INTERNAL_ERROR"),
+    ],
+)
+def test_result_metadata_lands_on_the_span(recorded_spans, raised, expected_result):
+    """Whatever a task collects explains its result, including when it failed."""
+    checker = Enochecker("test_service", 8080)
+
+    @checker.putflag(0)
+    async def putflag_test(metadata: TaskMetadata) -> str:
+        metadata["attempts"] = 3
+        metadata["nested"] = {"k": [1, 2]}
+        if raised is not None:
+            raise raised
+        return "attack_info"
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    client = TestClient(checker.app)
+    response = client.post("/", json=_task_payload())
+    response.raise_for_status()
+    assert response.json()["result"] == expected_result
+
+    attributes = _span_attributes(recorded_spans)
+    assert attributes["enochecker.result.metadata.attempts"] == 3
+    assert attributes["enochecker.result.metadata.nested"] == '{"k": [1, 2]}'
+
+
+def test_no_metadata_attributes_without_metadata(recorded_spans):
+    checker = Enochecker("test_service", 8080)
+
+    @checker.putflag(0)
+    async def putflag_test() -> str:
+        return "attack_info"
+
+    @checker.getflag(0)
+    async def getflag_test() -> None:
+        pass
+
+    client = TestClient(checker.app)
+    client.post("/", json=_task_payload()).raise_for_status()
+
+    assert not [
+        key
+        for key in _span_attributes(recorded_spans)
+        if key.startswith("enochecker.result.metadata.")
+    ]
