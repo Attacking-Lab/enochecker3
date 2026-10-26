@@ -144,7 +144,7 @@ Network exceptions are automatically converted:
 
 **Swagger UI** (interactive):
 ```bash
-uvicorn example:checker.app --reload
+uvicorn example.checker:checker.app --reload
 # Browse to http://localhost:8000/docs
 ```
 
@@ -262,7 +262,7 @@ async def putflag_file(task: PutflagCheckerTaskMessage, client: AsyncClient, db:
 Enable debug logging:
 ```bash
 export LOG_FORMAT=DEBUG
-uvicorn example:checker.app
+uvicorn example.checker:checker.app
 ```
 
 Check for missing return type annotations:

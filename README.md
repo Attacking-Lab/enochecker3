@@ -10,10 +10,10 @@ The minor version tracks [enochecker-core](https://github.com/attacking-lab/enoc
 pip3 install enochecker3
 ```
 
-See `example.py` for a minimal checker. Start it with:
+See `example/checker.py` for a minimal checker. Start it with:
 
 ```
-uvicorn --reload example:checker.app
+uvicorn --reload example.checker:checker.app
 ```
 
 Open http://localhost:8000/docs to try requests against it.
