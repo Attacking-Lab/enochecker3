@@ -1,6 +1,6 @@
 # enochecker3
 
-A FastAPI-based library for writing async checkers in Python. It is called enochecker3 even though enochecker2 never existed; it is the reference implementation for version 3 of the enochecker API specification, which is still being defined.
+A FastAPI-based library for writing async A/D service checkers in Python compatible with the ENOchecker task specification.
 
 The minor version tracks [enochecker-core](https://github.com/attacking-lab/enochecker-core): enochecker3 `0.X.*` depends on enochecker-core `0.X.*`.
 

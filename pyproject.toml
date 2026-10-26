@@ -5,7 +5,7 @@ authors = [
 	{ name = "Louis Burda", email = "dev@sinitax.com" },
 	{ name = "Lucas Druschke", email = "ldruschk@posteo.de" }
 ]
-description = "Library for building EnoEngine-compatible async checkers"
+description = "A FastAPI-based library for writing async A/D service checkers in Python compatible with the ENOchecker task specification"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
