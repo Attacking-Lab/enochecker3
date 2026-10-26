@@ -2,7 +2,9 @@
 
 A FastAPI-based library for writing async A/D service checkers in Python compatible with the ENOchecker task specification.
 
-The minor version tracks [enochecker-core](https://github.com/attacking-lab/enochecker-core): enochecker3 `0.X.*` depends on enochecker-core `0.X.*`. See `example/` for a minimal checker example.
+The minor version tracks [enochecker-core](https://github.com/attacking-lab/enochecker-core): enochecker3 `0.X.*` depends on enochecker-core `0.X.*`.
+
+See `example/` for a minimal checker example.
 
 ## Task types
 
