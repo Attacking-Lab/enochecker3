@@ -19,6 +19,67 @@ uvicorn --reload example:checker.app
 Open http://localhost:8000/docs to try requests against it.
 
 
+## Task types
+
+Each checker method handles one task type. Register it with the matching decorator and a variant id:
+
+```python
+checker = Enochecker("ServiceName", 3141)
+
+@checker.putflag(0)
+async def putflag0(task: PutflagCheckerTaskMessage, client: AsyncClient, db: ChainDB) -> None:
+    ...
+```
+
+| Decorator | Task message type | Purpose | Return value |
+|---|---|---|---|
+| `@checker.putflag(n)` | `PutflagCheckerTaskMessage` | Store a flag in the service | `str` attack_info (optional) |
+| `@checker.getflag(n)` | `GetflagCheckerTaskMessage` | Retrieve and verify the flag | — |
+| `@checker.putnoise(n)` | `PutnoiseCheckerTaskMessage` | Write benign data to the service | — |
+| `@checker.getnoise(n)` | `GetnoiseCheckerTaskMessage` | Verify the noise is still there | — |
+| `@checker.havoc(n)` | `HavocCheckerTaskMessage` | Probe service behavior without storing anything | — |
+| `@checker.exploit(n, f)` | `ExploitCheckerTaskMessage` | Extract a flag from a previous round | `str` flag (or `None`) |
+
+`exploit(n, f)` takes two ids: exploit variant `n` and the flag store `f` it targets. All other decorators take only the variant id. Every variant id starts from 0; gaps are not allowed.
+
+All task messages share a common set of fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `task_id` | `int` | Unique id for this task |
+| `team_id` | `int` | Target team's id |
+| `team_name` | `str` | Target team's name |
+| `service_id` | `int` | Service id |
+| `service_name` | `str` | Service name |
+| `address` | `str` | Target host |
+| `flag_regex` | `str` | Regex matching valid flags (exploit only) |
+| `flag_hash` | `str` | Expected flag hash for validation (exploit only) |
+| `attack_info` | `str \| None` | Public info from putflag, e.g. a user id (exploit only) |
+| `flag` | `str` | Flag to store or verify (putflag/getflag only) |
+| `task_chain_id` | `str` | Links the putflag and getflag for the same flag slot |
+| `current_round_id` | `int` | Current round number |
+| `related_round_id` | `int` | Round the flag was put (getflag/exploit) |
+| `timeout` | `int` | Milliseconds until the engine cancels the task |
+
+## Injectable dependencies
+
+Declare any of these as typed parameters and they are provided automatically:
+
+| Type | Description |
+|---|---|
+| `httpx.AsyncClient` | HTTP client pre-configured with `base_url=http://{task.address}:{port}`. Records flows. |
+| `ChainDB` | Key-value store scoped to the task chain, backed by MongoDB. Raises `MumbleException` on missing key. |
+| `AsyncCollection` | Raw MongoDB collection scoped to the team. For queries beyond what ChainDB covers. |
+| `AsyncDatabase` | Raw MongoDB database. For cross-collection operations. |
+| `AsyncSocket` | TCP socket connecting to `task.address:port`. Returns `(StreamReader, StreamWriter)`. |
+| `FlagSearcher` | Searches text or bytes for a valid flag. Only available in `exploit` methods. |
+| `logging.LoggerAdapter` | Logger with task context pre-attached. |
+| `random.Random` | Seeded with `task_id` for reproducible test data. Do not use for secrets. |
+| `TaskMetadata` | Mutable `dict` attached to the result. Useful for out-of-band diagnostics. |
+| `DependencyInjector` | Resolves dependencies dynamically at runtime. |
+
+See [docs/builtin_dependencies.md](docs/builtin_dependencies.md) for details on each.
+
 ## Exploits and flag stores
 
 Every exploit targets exactly one flag store. `exploit` takes a single exploit variant id followed by the flag variant it targets, unlike other methods which take a list of variant ids:
