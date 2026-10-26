@@ -31,20 +31,17 @@ async def putflag0(task: PutflagCheckerTaskMessage, client: AsyncClient, db: Cha
 
 ## Injectable dependencies
 
-Declare any of these as typed parameters and they are provided automatically:
+Declare a typed parameter and it is provided automatically. Some common ones:
 
 | Type | Description |
 |---|---|
 | `httpx.AsyncClient` | HTTP client pre-configured with `base_url=http://{task.address}:{port}`. Records flows. |
 | `ChainDB` | Key-value store scoped to the task chain, backed by MongoDB. Raises `MumbleException` on missing key. |
-| `AsyncCollection` | Raw MongoDB collection scoped to the team. For queries beyond what ChainDB covers. |
-| `AsyncDatabase` | Raw MongoDB database. For cross-collection operations. |
 | `AsyncSocket` | TCP socket connecting to `task.address:port`. Returns `(StreamReader, StreamWriter)`. |
 | `FlagSearcher` | Searches text or bytes for a valid flag. Only available in `exploit` methods. |
 | `logging.LoggerAdapter` | Logger with task context pre-attached. |
 | `random.Random` | Seeded with `task_id` for reproducible test data. Do not use for secrets. |
 | `TaskMetadata` | Mutable `dict` attached to the result. Useful for out-of-band diagnostics. |
-| `DependencyInjector` | Resolves dependencies dynamically at runtime. |
 
 See [docs/builtin_dependencies.md](docs/builtin_dependencies.md) for details on each.
 
