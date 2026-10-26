@@ -6,6 +6,7 @@ authors = [
 	{ name = "Lucas Druschke", email = "ldruschk@posteo.de" }
 ]
 description = "Library for building EnoEngine-compatible async checkers"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

@@ -1,0 +1,25 @@
+enochecker3
+Copyright 2025 Attacking-Lab
+Copyright 2021 Lucas Druschke
+
+This product includes software developed by third parties under the
+Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0):
+
+  pymongo (https://github.com/mongodb/mongo-python-driver)
+    Copyright 2009-present MongoDB, Inc.
+
+  opentelemetry-api, opentelemetry-sdk, opentelemetry-exporter-otlp,
+  opentelemetry-exporter-otlp-proto-common, opentelemetry-exporter-otlp-proto-grpc,
+  opentelemetry-exporter-otlp-proto-http, opentelemetry-instrumentation,
+  opentelemetry-instrumentation-asgi, opentelemetry-instrumentation-fastapi,
+  opentelemetry-instrumentation-httpx, opentelemetry-instrumentation-pymongo,
+  opentelemetry-proto, opentelemetry-semantic-conventions, opentelemetry-util-http
+  (https://github.com/open-telemetry/opentelemetry-python,
+   https://github.com/open-telemetry/opentelemetry-python-contrib)
+    Copyright The OpenTelemetry Authors
+
+  grpcio (https://github.com/grpc/grpc)
+    Copyright 2014 gRPC authors
+
+  googleapis-common-protos (https://github.com/googleapis/proto-plus-python)
+    Copyright 2020 Google LLC
