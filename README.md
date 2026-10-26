@@ -41,7 +41,7 @@ Declare a typed parameter and it is provided automatically. Some common ones:
 | `FlagSearcher` | Searches text or bytes for a valid flag. Only available in `exploit` methods. |
 | `logging.LoggerAdapter` | Logger with task context pre-attached. |
 | `random.Random` | Seeded with `task_id` for reproducible test data. Do not use for secrets. |
-| `TaskMetadata` | Mutable `dict` attached to the result. Useful for out-of-band diagnostics. |
+| `TaskMetadata` | Mutable `dict` attached to the checker task result. |
 
 See [docs/builtin_dependencies.md](docs/builtin_dependencies.md) for details on each.
 
