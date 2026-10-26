@@ -29,25 +29,6 @@ async def putflag0(task: PutflagCheckerTaskMessage, client: AsyncClient, db: Cha
 
 `exploit(n, f)` takes two ids: exploit variant `n` and the flag store `f` it targets. All other decorators take only the variant id. Every variant id starts from 0; gaps are not allowed.
 
-All task messages share a common set of fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `task_id` | `int` | Unique id for this task |
-| `team_id` | `int` | Target team's id |
-| `team_name` | `str` | Target team's name |
-| `service_id` | `int` | Service id |
-| `service_name` | `str` | Service name |
-| `address` | `str` | Target host |
-| `flag_regex` | `str` | Regex matching valid flags (exploit only) |
-| `flag_hash` | `str` | Expected flag hash for validation (exploit only) |
-| `attack_info` | `str \| None` | Public info from putflag, e.g. a user id (exploit only) |
-| `flag` | `str` | Flag to store or verify (putflag/getflag only) |
-| `task_chain_id` | `str` | Links the putflag and getflag for the same flag slot |
-| `current_round_id` | `int` | Current round number |
-| `related_round_id` | `int` | Round the flag was put (getflag/exploit) |
-| `timeout` | `int` | Milliseconds until the engine cancels the task |
-
 ## Injectable dependencies
 
 Declare any of these as typed parameters and they are provided automatically:
