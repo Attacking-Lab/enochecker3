@@ -81,3 +81,7 @@ See [docs/adding_custom_dependencies.md](docs/adding_custom_dependencies.md)
 ## FAQ
 
 See [docs/faq.md](docs/faq.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE).
