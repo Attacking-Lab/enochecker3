@@ -67,22 +67,6 @@ Declare any of these as typed parameters and they are provided automatically:
 
 See [docs/builtin_dependencies.md](docs/builtin_dependencies.md) for details on each.
 
-## Exploits and flag stores
-
-Every exploit targets exactly one flag store. `exploit` takes a single exploit variant id followed by the flag variant it targets, unlike other methods which take a list of variant ids:
-
-```python
-@checker.exploit(0, 0)  # exploit variant 0, against flag store 0
-async def exploit_note_idor(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
-    ...
-
-@checker.exploit(1, 1)  # exploit variant 1, against flag store 1
-async def exploit_admin_sqli(searcher: FlagSearcher, client: AsyncClient) -> Optional[str]:
-    ...
-```
-
-The checker reports this mapping as `exploitVariants` in its `GET /service` response: a list indexed by exploit variant id, with length equal to the number of exploits. Testing tools use it to pair each exploit with the `putflag` variant that stored the flag it targets, rather than trying every combination. Every flag store should be covered by at least one exploit.
-
 ## Testing
 
 Methods that use `ChainDB` or other MongoDB-backed dependencies normally need a MongoDB server. For tests, use the in-memory `MockAsyncMongoClient` instead:
