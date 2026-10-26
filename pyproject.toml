@@ -41,7 +41,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-enochecker-core = { git = "https://git.atklab.cloud/atklab/enochecker-core", rev = "v0.22.0" }
+enochecker-core = { git = "https://github.com/attacking-lab/enochecker-core", rev = "v0.22.0" }
 
 [tool.ruff.lint]
 ignore = [
