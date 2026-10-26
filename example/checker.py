@@ -61,9 +61,9 @@ def build_checker(
     return checker
 
 
-checker = build_checker()
-app = lambda: checker.app
-
-
 if __name__ == "__main__":
+    from enochecker3.mock import MockAsyncMongoClient
+    checker = build_checker(mongo_client=MockAsyncMongoClient())
     checker.run()
+else:
+    checker = build_checker()

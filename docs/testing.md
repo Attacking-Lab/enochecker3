@@ -1,5 +1,20 @@
 # Testing
 
+## Running locally without MongoDB
+
+Structure your checker so it uses `MockAsyncMongoClient` when run as a script and real MongoDB when imported by uvicorn or gunicorn:
+
+```python
+if __name__ == "__main__":
+    from enochecker3.mock import MockAsyncMongoClient
+    checker = build_checker(mongo_client=MockAsyncMongoClient())
+    checker.run()  # starts uvicorn on localhost:8000
+else:
+    checker = build_checker()
+```
+
+`python checker.py` → mock, no MongoDB needed. `uvicorn checker:checker.app` or gunicorn → real MongoDB. `example/checker.py` uses this pattern.
+
 ## Running the checker locally
 
 **Swagger UI** (interactive):
