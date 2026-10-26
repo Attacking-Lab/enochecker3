@@ -69,20 +69,7 @@ See [docs/builtin_dependencies.md](docs/builtin_dependencies.md) for details on 
 
 ## Testing
 
-Methods that use `ChainDB` or other MongoDB-backed dependencies normally need a MongoDB server. For tests, use the in-memory `MockAsyncMongoClient` instead:
-
-```
-pip3 install "enochecker3[testing]"
-```
-
-```python
-from enochecker3 import Enochecker
-from enochecker3.mock import MockAsyncMongoClient
-
-checker = Enochecker("ExampleService", 1337, mongo_client=MockAsyncMongoClient())
-```
-
-See [docs/faq.md](docs/faq.md#do-i-need-mongodb-running) for a full example.
+See [docs/testing.md](docs/testing.md).
 
 ## Health endpoint
 
