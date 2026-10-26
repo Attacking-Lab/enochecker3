@@ -1,0 +1,11 @@
+[private]
+default:
+    @just --list
+
+# Run checker locally with mock MongoDB (no server needed)
+dev:
+    python checker.py
+
+# Run checker with gunicorn
+run:
+    gunicorn -c gunicorn.conf.py checker:checker.app
